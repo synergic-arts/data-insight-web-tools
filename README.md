@@ -4,7 +4,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 
 ## Incluye
 
-- **Dashboard Studio**: KPIs, tablas y visualizaciones de barras, líneas, áreas, anillos, dispersión, histogramas, cajas, mapas de puntos y mapas de burbujas WGS84.
+- **Dashboard Studio**: KPIs, tablas y visualizaciones de barras, líneas, áreas, anillos, dispersión, histogramas, cajas, mapas de puntos, mapas de burbujas y densidad por cuadrícula WGS84.
 - **Data Profiler**: vacíos, duplicados exactos, tipos, cardinalidad, media, mediana, rangos y cobertura por campo.
 - **Transform Lab**: filtros combinados, búsqueda, campos calculados aritméticos y exportación.
 - **Pivot Lab**: agrupaciones y agregaciones locales por categoría, comparación visual y exportación del resumen.
@@ -16,6 +16,8 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Escalas firmadas para gráficos de barras y líneas, con línea cero y tooltips accesibles para valores negativos y positivos.
 - Recuento automático por categoría cuando el conjunto no contiene métricas numéricas; el anillo rechaza valores negativos o sin total interpretable.
 - Detección de coordenadas por alias habituales (`lat`, `latitude`, `latitud`, `lon`, `lng`, `longitude`, `longitud`, `x`, `y`), mapas de puntos con tooltips por registro y burbujas agregadas por coordenadas coincidentes; el mapa no inventa una cartografía base cuando solo hay coordenadas.
+- Mapa de densidad por cuadrícula: divide la extensión real de las coordenadas en celdas, muestra la concentración de registros y conserva en cada celda el rango lon/lat y el recuento; no debe confundirse con una superficie estadística interpolada.
+- Exportación SVG de la visualización activa para conservar escala vectorial, etiquetas y tooltips del gráfico en un archivo portable.
 - Asistente local con resumen determinista, panel recomendado y compatibilidad opcional con Gemini Nano mediante la Prompt API de Chrome. La IA solo se inicia tras una acción explícita y no sustituye la validación de unidades, proyección ni semántica.
 - Reapertura tolerante de proyectos: valida pestañas, campos, filtros, tarjetas y metadatos antes de reconstruir la vista.
 - Service worker para reutilizar la interfaz sin conexión después de la primera visita.

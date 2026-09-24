@@ -5,8 +5,8 @@ const root = document.body;
 const mode = root.dataset.mode || 'dashboard';
 const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'analyze' : 'overview';
 const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
-const CHART_TYPES = ['bar', 'line', 'area', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map'];
-const CHART_LABELS = { bar: 'Barras', line: 'Línea', area: 'Área', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas' };
+const CHART_TYPES = ['bar', 'line', 'area', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map'];
+const CHART_LABELS = { bar: 'Barras', line: 'Línea', area: 'Área', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula' };
 const AGGREGATIONS = ['sum', 'avg', 'count'];
 const SORT_MODES = ['original', 'value-desc', 'value-asc'];
 const numericColumns = () => state.columns.filter(column => column.type === 'number');
@@ -168,10 +168,10 @@ function renderAnalyze() {
   if (state.aggregation !== aggregation) state.aggregation = aggregation;
   const disabledMetricOptions = hasMetric ? '' : ' disabled';
   const geo = coordinates();
-  const helper = hasMetric ? `Los gráficos se calculan en memoria con las filas filtradas. ${geo.longitude && geo.latitude ? `Se detectan coordenadas ${geo.longitude}/${geo.latitude}; elige Mapa de puntos para verlas.` : 'Puedes cargar un GeoJSON o campos lon/lat para activar el mapa.'}` : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
+  const helper = hasMetric ? `Los gráficos se calculan en memoria con las filas filtradas. ${geo.longitude && geo.latitude ? `Se detectan coordenadas ${geo.longitude}/${geo.latitude}; prueba un mapa de puntos, burbujas o densidad.` : 'Puedes cargar un GeoJSON o campos lon/lat para activar el mapa.'}` : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
   const previewTitle = state.chartTitle || `${state.yField} por ${state.xField}`;
   const chartOptions = Object.entries(CHART_LABELS).map(([value, label]) => `<option value="${value}" ${state.chartType === value ? 'selected' : ''}>${label}</option>`).join('');
-  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Agregación<select id="aggregation"><option value="sum" ${aggregation === 'sum' ? 'selected' : ''}${disabledMetricOptions}>Suma</option><option value="avg" ${aggregation === 'avg' ? 'selected' : ''}${disabledMetricOptions}>Media</option><option value="count" ${aggregation === 'count' ? 'selected' : ''}>Recuento</option></select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper}</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><span class="panel-note">${format(state.filtered.length, 0)} filas</span></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
+  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Agregación<select id="aggregation"><option value="sum" ${aggregation === 'sum' ? 'selected' : ''}${disabledMetricOptions}>Suma</option><option value="avg" ${aggregation === 'avg' ? 'selected' : ''}${disabledMetricOptions}>Media</option><option value="count" ${aggregation === 'count' ? 'selected' : ''}>Recuento</option></select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper}</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><div class="panel-heading-actions"><span class="panel-note">${format(state.filtered.length, 0)} filas</span><button class="button button-ghost" data-action="export-svg">Exportar SVG</button></div></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
 }
 
 function enhanceAnalyzeUI() {
@@ -333,6 +333,16 @@ function exportJSON() {
   announce('JSON exportado con la población visible y su contexto de filtros.');
 }
 
+function exportSVG() {
+  const svg = document.querySelector('.analysis-result .chart-svg');
+  if (!svg) { announce('No hay una visualización SVG activa para exportar.', 'error'); return; }
+  const serialized = new XMLSerializer().serializeToString(svg);
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n${serialized}`;
+  const slug = (state.chartTitle || 'visualizacion').replace(/[^\wáéíóúüñ-]+/gi, '-').slice(0, 48) || 'visualizacion';
+  download(`${slug}.svg`, xml, 'image/svg+xml;charset=utf-8');
+  announce('SVG exportado con la visualización activa y sus etiquetas.');
+}
+
 function saveProject() {
   const project = { format: 'data-insight-project', version: 3, savedAt: new Date().toISOString(), meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail }, rows: state.rows, filters: state.filters, search: state.search, activeTab: state.activeTab, xField: state.xField, yField: state.yField, chartType: state.chartType, chartSort: state.chartSort, chartTitle: state.chartTitle, aggregation: state.aggregation, sortKey: state.sortKey, sortDir: state.sortDir, tableLimit: state.tableLimit, dashboard: state.dashboard };
   download(`${state.datasetName.replace(/[^\wáéíóúüñ-]+/gi, '-').slice(0, 48) || 'proyecto'}.data-insight.json`, JSON.stringify(project, null, 2), 'application/json;charset=utf-8');
@@ -468,6 +478,7 @@ function bind() {
     if (action === 'paste') showPasteModal();
     if (action === 'export') exportCSV();
     if (action === 'export-json') exportJSON();
+    if (action === 'export-svg') exportSVG();
     if (action === 'save') saveProject();
     if (action === 'reset') resetFromDemo();
     if (action === 'reset-filters') { state.filters = {}; state.search = ''; renderAll(); announce('Filtros restablecidos.'); }
@@ -489,7 +500,7 @@ function bind() {
     if (event.target.matches('[data-filter-kind]')) updateFilter(event.target);
     if (event.target.id === 'x-field') { state.xField = event.target.value; renderAll(); }
     if (event.target.id === 'y-field') { state.yField = event.target.value; renderAll(); }
-    if (event.target.id === 'chart-type') { state.chartType = CHART_TYPES.includes(event.target.value) ? event.target.value : 'bar'; if (['map', 'bubble-map'].includes(state.chartType)) { const geo = coordinates(); state.xField = geo.longitude || state.xField; state.yField = geo.latitude || state.yField; state.aggregation = 'count'; } renderAll(); }
+    if (event.target.id === 'chart-type') { state.chartType = CHART_TYPES.includes(event.target.value) ? event.target.value : 'bar'; if (['map', 'bubble-map', 'density-map'].includes(state.chartType)) { const geo = coordinates(); state.xField = geo.longitude || state.xField; state.yField = geo.latitude || state.yField; state.aggregation = 'count'; } renderAll(); }
     if (event.target.id === 'aggregation') { state.aggregation = event.target.value; renderAll(); }
     if (event.target.id === 'chart-sort') { state.chartSort = ['original', 'value-desc', 'value-asc'].includes(event.target.value) ? event.target.value : 'original'; renderAll(); }
     if (event.target.id === 'chart-title') { state.chartTitle = event.target.value.trim() || 'Visualización principal'; renderAll(); }

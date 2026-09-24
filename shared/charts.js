@@ -184,6 +184,52 @@ function mapChart(rows, longitudeField, latitudeField, bubbles = false) {
   return chartFrame(`<g class="map-grid">${grid}</g><text class="chart-axis-title" x="62" y="20">${title}</text>${marks}<text class="chart-axis-label" x="74" y="296">${format(minLon, 4)}°</text><text class="chart-axis-label" x="774" y="296" text-anchor="end">${format(maxLon, 4)}°</text><text class="chart-axis-label" x="58" y="40" text-anchor="end">${format(maxLat, 4)}°</text><text class="chart-axis-label" x="58" y="274" text-anchor="end">${format(minLat, 4)}°</text>`, bubbles ? 'Mapa de burbujas' : 'Mapa de puntos');
 }
 
+function densityMapChart(rows, longitudeField, latitudeField) {
+  const points = rows.map((row, index) => ({
+    longitude: toNumber(row[longitudeField]),
+    latitude: toNumber(row[latitudeField]),
+    label: row.name ?? row.site ?? row.title ?? `Fila ${index + 1}`
+  })).filter(point => point.longitude !== null && point.latitude !== null && Math.abs(point.longitude) <= 180 && Math.abs(point.latitude) <= 90).slice(0, 2000);
+  if (!points.length) return emptyChart('Selecciona longitud y latitud numéricas para calcular la densidad');
+  const minLon = Math.min(...points.map(point => point.longitude));
+  const maxLon = Math.max(...points.map(point => point.longitude));
+  const minLat = Math.min(...points.map(point => point.latitude));
+  const maxLat = Math.max(...points.map(point => point.latitude));
+  const spanLon = maxLon - minLon || 1;
+  const spanLat = maxLat - minLat || 1;
+  const padLon = spanLon * .04;
+  const padLat = spanLat * .04;
+  const left = minLon - padLon;
+  const right = maxLon + padLon;
+  const bottom = minLat - padLat;
+  const top = maxLat + padLat;
+  const columns = Math.min(10, Math.max(5, Math.ceil(Math.sqrt(points.length * 1.5))));
+  const rowsCount = Math.min(7, Math.max(4, Math.ceil(columns * spanLat / spanLon)));
+  const bins = Array.from({ length: rowsCount }, () => Array.from({ length: columns }, () => []));
+  points.forEach(point => {
+    const column = Math.min(columns - 1, Math.max(0, Math.floor((point.longitude - left) / (right - left) * columns)));
+    const row = Math.min(rowsCount - 1, Math.max(0, rowsCount - 1 - Math.floor((point.latitude - bottom) / (top - bottom) * rowsCount)));
+    bins[row][column].push(point);
+  });
+  const peak = Math.max(...bins.flat().map(cell => cell.length), 1);
+  const palette = ['#d9f7ef', '#a7ead5', '#70ddba', '#39c39a', '#159576', '#0b6657'];
+  const cellWidth = 700 / columns;
+  const cellHeight = 220 / rowsCount;
+  const marks = bins.flatMap((row, rowIndex) => row.map((cell, columnIndex) => {
+    if (!cell.length) return '';
+    const intensity = Math.min(palette.length - 1, Math.ceil(cell.length / peak * palette.length) - 1);
+    const x = 74 + columnIndex * cellWidth;
+    const y = 34 + rowIndex * cellHeight;
+    const lonA = left + columnIndex / columns * (right - left);
+    const lonB = left + (columnIndex + 1) / columns * (right - left);
+    const latB = top - rowIndex / rowsCount * (top - bottom);
+    const latA = top - (rowIndex + 1) / rowsCount * (top - bottom);
+    const label = `${cell.length} registros · lon ${format(lonA, 4)}–${format(lonB, 4)} · lat ${format(latA, 4)}–${format(latB, 4)}`;
+    return `<rect class="density-cell" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, cellWidth - 1).toFixed(1)}" height="${Math.max(1, cellHeight - 1).toFixed(1)}" rx="4" fill="${palette[intensity]}"><title>${esc(label)}</title></rect>`;
+  })).join('');
+  return chartFrame(`<g class="map-grid">${marks}</g><text class="chart-axis-title" x="62" y="20">Densidad por cuadrícula · ${points.length} coordenadas WGS84</text><text class="chart-axis-label" x="74" y="296">${format(minLon, 4)}°</text><text class="chart-axis-label" x="774" y="296" text-anchor="end">${format(maxLon, 4)}°</text><text class="chart-axis-label" x="58" y="40" text-anchor="end">${format(maxLat, 4)}°</text><text class="chart-axis-label" x="58" y="274" text-anchor="end">${format(minLat, 4)}°</text>`, 'Mapa de densidad por cuadrícula');
+}
+
 export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original') {
   if (type === 'line') return signedLineChart(rows, xField, yField, aggregation, ordering);
   if (type === 'area') return areaChart(rows, xField, yField, aggregation, ordering);
@@ -193,6 +239,7 @@ export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'or
   if (type === 'boxplot') return boxPlotChart(rows, xField, yField, ordering);
   if (type === 'map') return mapChart(rows, xField, yField);
   if (type === 'bubble-map') return mapChart(rows, xField, yField, true);
+  if (type === 'density-map') return densityMapChart(rows, xField, yField);
   return signedBarChart(rows, xField, yField, aggregation, ordering);
 }
 
