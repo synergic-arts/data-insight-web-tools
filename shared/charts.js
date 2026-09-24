@@ -6,20 +6,23 @@ function emptyChart(message = 'No hay datos para representar') {
   return `<div class="empty-chart"><span>◌</span><strong>${esc(message)}</strong><small>Ajusta los filtros o carga otro conjunto de datos.</small></div>`;
 }
 
-function groupRows(rows, xField, yField, aggregation) {
+function groupRows(rows, xField, yField, aggregation, ordering = 'original') {
   const groups = new Map();
   rows.forEach(row => {
     const key = String(row[xField] ?? 'Sin valor');
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row);
   });
-  return [...groups.entries()].slice(0, 24).map(([label, items]) => {
+  const result = [...groups.entries()].map(([label, items]) => {
     const numbers = items.map(item => toNumber(item[yField])).filter(value => value !== null);
     let value = items.length;
     if (aggregation === 'sum') value = numbers.length ? numbers.reduce((total, item) => total + item, 0) : null;
     if (aggregation === 'avg') value = numbers.length ? numbers.reduce((total, item) => total + item, 0) / numbers.length : null;
     return { label, value: value === null ? null : Number(value), count: items.length, hasValue: aggregation === 'count' || numbers.length > 0 };
   }).filter(item => item.hasValue);
+  if (ordering === 'value-desc') result.sort((a, b) => b.value - a.value);
+  if (ordering === 'value-asc') result.sort((a, b) => a.value - b.value);
+  return result.slice(0, 24);
 }
 
 function axisLabel(value) {
@@ -31,8 +34,8 @@ function chartFrame(content, title = '') {
   return `<svg class="chart-svg" viewBox="0 0 820 330" role="img" aria-label="${esc(title || 'Gráfico')}" preserveAspectRatio="xMidYMid meet"><g class="chart-grid"><line x1="62" y1="34" x2="62" y2="274"/><line x1="62" y1="274" x2="790" y2="274"/></g>${content}</svg>`;
 }
 
-function barChart(rows, xField, yField, aggregation) {
-  const groups = groupRows(rows, xField, yField, aggregation);
+function barChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, ordering);
   if (!groups.length) return emptyChart();
   const max = Math.max(...groups.map(item => item.value), 1);
   const slot = 700 / groups.length;
@@ -45,8 +48,8 @@ function barChart(rows, xField, yField, aggregation) {
   return chartFrame(`<text class="chart-axis-title" x="62" y="20">${esc(yField)}</text>${bars}`, `${xField} por ${yField}`);
 }
 
-function lineChart(rows, xField, yField, aggregation) {
-  const groups = groupRows(rows, xField, yField, aggregation);
+function lineChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, ordering);
   if (!groups.length) return emptyChart();
   const max = Math.max(...groups.map(item => item.value), 1);
   const step = groups.length === 1 ? 0 : 700 / (groups.length - 1);
@@ -59,8 +62,8 @@ function lineChart(rows, xField, yField, aggregation) {
   return chartFrame(`<text class="chart-axis-title" x="62" y="20">${esc(yField)}</text><polyline class="chart-line" points="${points}" fill="none" stroke="#67e8f9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>${dots}`, `${xField} en el tiempo`);
 }
 
-function donutChart(rows, xField, yField, aggregation) {
-  const groups = groupRows(rows, xField, yField, aggregation).slice(0, 8);
+function donutChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, ordering).slice(0, 8);
   if (!groups.length) return emptyChart();
   const total = groups.reduce((sum, item) => sum + item.value, 0) || 1;
   let offset = 0;
@@ -103,12 +106,12 @@ function histogramChart(rows, field) {
   return chartFrame(`<text class="chart-axis-title" x="62" y="20">Distribución de ${esc(field)}</text>${bars}`, 'Histograma');
 }
 
-export function chartSVG(type, rows, xField, yField, aggregation) {
-  if (type === 'line') return lineChart(rows, xField, yField, aggregation);
-  if (type === 'donut') return donutChart(rows, xField, yField, aggregation);
+export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original') {
+  if (type === 'line') return lineChart(rows, xField, yField, aggregation, ordering);
+  if (type === 'donut') return donutChart(rows, xField, yField, aggregation, ordering);
   if (type === 'scatter') return scatterChart(rows, xField, yField);
   if (type === 'histogram') return histogramChart(rows, yField);
-  return barChart(rows, xField, yField, aggregation);
+  return barChart(rows, xField, yField, aggregation, ordering);
 }
 
 export function tableHTML(rows, columns, limit = 12) {

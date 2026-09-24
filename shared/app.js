@@ -23,7 +23,7 @@ function defaultDashboard() {
 
 function shellMarkup() {
   root.innerHTML = `<div class="app-shell">
-    <header class="appbar"><a class="brand" href="../" aria-label="Data Insight Web Tools"><span class="brand-mark">DI</span><span><strong>Data Insight</strong><small>local analytics studio</small></span></a><div class="appbar-actions"><button class="icon-button" data-action="fullscreen" title="Pantalla completa" aria-label="Pantalla completa">⛶</button><button class="button button-ghost" data-action="save">Guardar proyecto</button><button class="button button-primary" data-action="export">Exportar CSV</button></div></header>
+    <header class="appbar"><a class="brand" href="../" aria-label="Data Insight Web Tools"><span class="brand-mark">DI</span><span><strong>Data Insight</strong><small>local analytics studio</small></span></a><div class="appbar-actions"><button class="icon-button" data-action="fullscreen" title="Pantalla completa" aria-label="Pantalla completa">⛶</button><button class="button button-ghost" data-action="save">Guardar proyecto</button><button class="button button-ghost" data-action="export-json">Exportar JSON</button><button class="button button-primary" data-action="export">Exportar CSV</button></div></header>
     <div class="app-layout">
       <aside class="sidebar"><div class="sidebar-heading"><span class="eyebrow">Espacio de trabajo</span><h2>Explora tus datos</h2></div><div class="dataset-card"><span class="status-dot"></span><strong id="dataset-name">Cargando…</strong><small id="dataset-meta"></small><span id="dataset-kind" class="badge"></span></div>
         <nav class="side-nav" aria-label="Secciones"><button data-tab="overview">▦ <span>Dashboard</span></button><button data-tab="prepare">⌘ <span>Preparar datos</span></button><button data-tab="analyze">◒ <span>Analizar</span></button><button data-tab="quality">✓ <span>Calidad</span></button></nav>
@@ -62,12 +62,13 @@ function renderAll() {
   document.querySelector('#page-subtitle').textContent = info[2];
   document.querySelectorAll('[data-tab]').forEach(button => button.classList.toggle('active', button.dataset.tab === state.activeTab));
   document.querySelector('#app-content').innerHTML = renderContent();
+  enhanceAnalyzeUI();
 }
 
 function renderContent() {
   if (state.activeTab === 'prepare') return renderPrepare();
   if (state.activeTab === 'analyze') return renderAnalyze();
-  if (state.activeTab === 'quality') return renderQuality();
+  if (state.activeTab === 'quality') return renderQualityEnhanced();
   return renderOverview();
 }
 
@@ -89,7 +90,7 @@ function cardActions(card) {
 function cardHTML(card) {
   if (card.type === 'kpi') return `<article class="kpi-card"><div class="kpi-icon">${card.metric === 'complete' ? '◒' : card.metric === 'rows' ? '▤' : 'Σ'}</div>${renderKpi(card.metric, card.field)}</article>`;
   if (card.type === 'table') return `<article class="panel dashboard-card card-table"><div class="panel-heading"><div><span class="eyebrow">Tabla</span><h3>${esc(card.title || 'Registros')}</h3></div>${cardActions(card)}</div>${tableHTML(state.filtered, state.columns, 8)}</article>`;
-  return `<article class="panel dashboard-card card-chart"><div class="panel-heading"><div><span class="eyebrow">Visual</span><h3>${esc(card.title || 'Visualización')}</h3></div>${cardActions(card)}</div><div class="chart-wrap">${chartSVG(card.chartType || 'bar', state.filtered, card.xField || state.xField, card.yField || state.yField, card.aggregation || 'sum')}</div></article>`;
+  return `<article class="panel dashboard-card card-chart"><div class="panel-heading"><div><span class="eyebrow">Visual</span><h3>${esc(card.title || 'Visualización')}</h3></div>${cardActions(card)}</div><div class="chart-wrap">${chartSVG(card.chartType || 'bar', state.filtered, card.xField || state.xField, card.yField || state.yField, card.aggregation || 'sum', card.chartSort || 'original')}</div></article>`;
 }
 
 function renderOverview() {
@@ -119,6 +120,19 @@ function fieldSelect(id, value, numericOnly = false) {
 
 function renderAnalyze() {
   return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica<span>${fieldSelect('y-field', state.yField, true)}</span></label><label>Tipo de gráfico<select id="chart-type"><option value="bar" ${state.chartType === 'bar' ? 'selected' : ''}>Barras</option><option value="line" ${state.chartType === 'line' ? 'selected' : ''}>Línea</option><option value="donut" ${state.chartType === 'donut' ? 'selected' : ''}>Anillo</option><option value="scatter" ${state.chartType === 'scatter' ? 'selected' : ''}>Dispersión</option><option value="histogram" ${state.chartType === 'histogram' ? 'selected' : ''}>Histograma</option></select></label><label>Agregación<select id="aggregation"><option value="sum" ${state.aggregation === 'sum' ? 'selected' : ''}>Suma</option><option value="avg" ${state.aggregation === 'avg' ? 'selected' : ''}>Media</option><option value="count" ${state.aggregation === 'count' ? 'selected' : ''}>Recuento</option></select></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">Los gráficos se calculan en memoria con las filas filtradas y se pueden exportar junto al proyecto.</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(state.yField)} por ${esc(state.xField)}</h3></div><span class="panel-note">${format(state.filtered.length, 0)} filas</span></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, state.aggregation)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
+}
+
+function enhanceAnalyzeUI() {
+  if (state.activeTab !== 'analyze') return;
+  const controls = document.querySelector('.analysis-controls');
+  if (!controls || document.querySelector('#chart-title')) return;
+  const addButton = controls.querySelector('[data-action="add-chart"]');
+  if (!addButton) return;
+  addButton.insertAdjacentHTML('beforebegin', `<label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label>`);
+  const preview = document.querySelector('.analysis-result .chart-wrap');
+  if (preview) preview.innerHTML = chartSVG(state.chartType, state.filtered, state.xField, state.yField, state.aggregation, state.chartSort);
+  const heading = document.querySelector('.analysis-result .panel-heading h3');
+  if (heading) heading.textContent = state.chartTitle || 'Visualización principal';
 }
 
 function renderQuality() {
@@ -164,8 +178,14 @@ function exportCSV() {
   announce('CSV exportado con las filas visibles.');
 }
 
+function exportJSON() {
+  const payload = { format: 'data-insight-data', version: 1, exportedAt: new Date().toISOString(), dataset: state.datasetName, source: state.sourceDetail, filters: state.filters, search: state.search, columns: state.columns, rows: state.filtered };
+  download(`${state.datasetName.replace(/[^\wáéíóúüñ-]+/gi, '-').slice(0, 48) || 'datos'}-filtrado.json`, JSON.stringify(payload, null, 2), 'application/json;charset=utf-8');
+  announce('JSON exportado con la población visible y su contexto de filtros.');
+}
+
 function saveProject() {
-  const project = { format: 'data-insight-project', version: 2, savedAt: new Date().toISOString(), meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail }, rows: state.rows, filters: state.filters, search: state.search, activeTab: state.activeTab, xField: state.xField, yField: state.yField, chartType: state.chartType, aggregation: state.aggregation, sortKey: state.sortKey, sortDir: state.sortDir, tableLimit: state.tableLimit, dashboard: state.dashboard };
+  const project = { format: 'data-insight-project', version: 3, savedAt: new Date().toISOString(), meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail }, rows: state.rows, filters: state.filters, search: state.search, activeTab: state.activeTab, xField: state.xField, yField: state.yField, chartType: state.chartType, chartSort: state.chartSort, chartTitle: state.chartTitle, aggregation: state.aggregation, sortKey: state.sortKey, sortDir: state.sortDir, tableLimit: state.tableLimit, dashboard: state.dashboard };
   download(`${state.datasetName.replace(/[^\wáéíóúüñ-]+/gi, '-').slice(0, 48) || 'proyecto'}.data-insight.json`, JSON.stringify(project, null, 2), 'application/json;charset=utf-8');
   announce('Proyecto guardado. Puedes abrirlo de nuevo desde la barra lateral.');
 }
@@ -223,6 +243,8 @@ async function importProject(file) {
     state.xField = project.xField || state.xField;
     state.yField = project.yField || state.yField;
     state.chartType = project.chartType || 'bar';
+    state.chartSort = ['original', 'value-desc', 'value-asc'].includes(project.chartSort) ? project.chartSort : 'original';
+    state.chartTitle = project.chartTitle || 'Visualización principal';
     state.aggregation = project.aggregation || 'sum';
     state.sortKey = project.sortKey || '';
     state.sortDir = project.sortDir === 'desc' ? 'desc' : 'asc';
@@ -277,10 +299,17 @@ function bind() {
     const actionNode = event.target.closest('[data-action]');
     if (!actionNode) return;
     const action = actionNode.dataset.action;
+    if (action === 'add-chart') {
+      state.dashboard.cards.push({ id: 'chart-' + Date.now(), type: 'chart', title: state.chartTitle?.trim() || state.yField + ' por ' + state.xField, chartType: state.chartType, xField: state.xField, yField: state.yField, aggregation: state.aggregation, chartSort: state.chartSort });
+      announce('Visual añadido al dashboard.');
+      renderAll();
+      return;
+    }
     if (action === 'import') document.querySelector('#file-input').click();
     if (action === 'load-project') document.querySelector('#project-input').click();
     if (action === 'paste') showPasteModal();
     if (action === 'export') exportCSV();
+    if (action === 'export-json') exportJSON();
     if (action === 'save') saveProject();
     if (action === 'reset') resetFromDemo();
     if (action === 'reset-filters') { state.filters = {}; state.search = ''; renderAll(); announce('Filtros restablecidos.'); }
@@ -305,8 +334,27 @@ function bind() {
     if (event.target.id === 'y-field') { state.yField = event.target.value; renderAll(); }
     if (event.target.id === 'chart-type') { state.chartType = event.target.value; renderAll(); }
     if (event.target.id === 'aggregation') { state.aggregation = event.target.value; renderAll(); }
+    if (event.target.id === 'chart-sort') { state.chartSort = ['original', 'value-desc', 'value-asc'].includes(event.target.value) ? event.target.value : 'original'; renderAll(); }
+    if (event.target.id === 'chart-title') { state.chartTitle = event.target.value.trim() || 'Visualización principal'; renderAll(); }
   });
   app.addEventListener('keydown', event => { if (event.key === 'Enter' && event.target.id === 'search-input') { state.search = event.target.value; renderAll(); } });
 }
 
 init();
+
+function renderQualityEnhanced() {
+  const totalCells = state.rows.length * state.columns.length;
+  const missing = state.rows.reduce((sum, row) => sum + state.columns.filter(column => isMissing(row[column.name])).length, 0);
+  const duplicateKeys = new Set(state.rows.map(row => JSON.stringify(row)));
+  const cards = '<div class="quality-summary"><article class="quality-stat"><span>Completitud</span><strong>' + format(totalCells ? (1 - missing / totalCells) * 100 : 0, 1) + '%</strong><small>' + format(missing, 0) + ' celdas vacías</small></article><article class="quality-stat"><span>Duplicados exactos</span><strong>' + format(state.rows.length - duplicateKeys.size, 0) + '</strong><small>Comparación de filas completas</small></article><article class="quality-stat"><span>Campos numéricos</span><strong>' + format(numericColumns().length, 0) + '</strong><small>Listos para métricas</small></article></div>';
+  const rows = state.columns.map(column => {
+    const present = state.rows.map(row => row[column.name]).filter(value => !isMissing(value));
+    const numbers = present.map(toNumber).filter(value => value !== null).sort((a, b) => a - b);
+    const middle = Math.floor(numbers.length / 2);
+    const median = numbers.length ? (numbers.length % 2 ? numbers[middle] : (numbers[middle - 1] + numbers[middle]) / 2) : null;
+    const mean = numbers.length ? numbers.reduce((sum, value) => sum + value, 0) / numbers.length : null;
+    const range = column.type === 'number' && numbers.length ? format(numbers[0], 1) + ' – ' + format(numbers[numbers.length - 1], 1) : '—';
+    return '<tr><td><strong>' + esc(column.name) + '</strong><small>' + esc(column.type) + '</small></td><td>' + format(state.rows.length - present.length, 0) + '</td><td>' + format(new Set(present.map(String)).size, 0) + '</td><td>' + (column.type === 'number' ? format(mean, 1) : '—') + '</td><td>' + (column.type === 'number' ? format(median, 1) : '—') + '</td><td>' + range + '</td><td><span class="quality-bar"><i style="width:' + (state.rows.length ? present.length / state.rows.length * 100 : 0) + '%"></i></span></td></tr>';
+  }).join('');
+  return cards + '<div class="panel"><div class="panel-heading"><div><span class="eyebrow">Auditoría por campo</span><h3>Perfil de calidad del conjunto</h3></div><span class="panel-note">Sin enviar datos fuera del navegador</span></div><div class="table-scroll"><table class="quality-table"><thead><tr><th>Campo</th><th>Vacíos</th><th>Únicos</th><th>Media</th><th>Mediana</th><th>Rango</th><th>Cobertura</th></tr></thead><tbody>' + rows + '</tbody></table></div></div><div class="provenance"><strong>Lectura responsable</strong><span>El perfil describe el archivo cargado, no valida por sí solo la exactitud semántica, geográfica o estadística de sus valores. Conserva la fuente original y revisa los campos críticos antes de publicar resultados.</span></div>';
+}

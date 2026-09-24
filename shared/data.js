@@ -30,6 +30,8 @@ export const state = {
   xField: 'province',
   yField: 'finds',
   chartType: 'bar',
+  chartSort: 'original',
+  chartTitle: 'Visualización principal',
   aggregation: 'sum',
   sortKey: '',
   sortDir: 'asc',
@@ -174,6 +176,8 @@ export function loadRows(rows, meta = {}) {
   state.sortKey = '';
   state.sortDir = 'asc';
   state.tableLimit = 20;
+  state.chartSort = 'original';
+  state.chartTitle = 'Visualización principal';
   rebuildColumns();
   applyFilters();
 }
