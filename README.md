@@ -20,6 +20,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Exportación SVG de la visualización activa para conservar escala vectorial, etiquetas y tooltips del gráfico en un archivo portable.
 - Panel automático enriquecido: añade suma, media, completitud, distribución, evolución temporal, relación entre métricas, puntos espaciales, densidad y tabla cuando el esquema contiene los campos necesarios.
 - Resumen analítico local con campos incompletos, rangos, valores atípicos IQR, variación temporal, correlación descriptiva y recomendaciones de visualización; no afirma causalidad.
+- Órdenes de dashboard en lenguaje natural sin servidor: reconoce peticiones de mapas, calor bivariado, dispersión, histogramas, cajas, anillos, líneas y áreas, valida los campos disponibles y añade la visual resultante al panel.
 - Asistente local con resumen determinista, panel recomendado y compatibilidad opcional con Gemini Nano mediante la Prompt API de Chrome. La IA solo se inicia tras una acción explícita y no sustituye la validación de unidades, proyección ni semántica.
 - Reapertura tolerante de proyectos: valida pestañas, campos, filtros, tarjetas y metadatos antes de reconstruir la vista.
 - Service worker para reutilizar la interfaz sin conexión después de la primera visita.

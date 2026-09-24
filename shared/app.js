@@ -289,7 +289,7 @@ function deterministicInsights() {
   return insights;
 }
 
-async function askLocalModel() {
+async function askLocalModel(request = '') {
   const availability = state.aiAvailability || await detectLocalAI();
   if (!['available', 'downloadable'].includes(availability)) throw new Error('Gemini Nano no está disponible en este navegador.');
   const api = window.LanguageModel;
@@ -298,10 +298,58 @@ async function askLocalModel() {
     state.aiSession = await api.create({ expectedInputs: [{ type: 'text', languages: ['es'] }], expectedOutputs: [{ type: 'text', languages: ['es'] }], monitor(monitor) { monitor.addEventListener('downloadprogress', event => { setAIStatus(`Descargando Gemini Nano ${Math.round(event.loaded * 100)}%`, 'idle'); }); } });
   }
   const profile = compactDataProfile();
-  const prompt = `Actúa como analista de datos. Responde en español, con prudencia y sin inventar. Analiza este perfil local y propone hasta cinco acciones concretas de limpieza, métricas o visualizaciones. Si hay coordenadas, recomienda un mapa apropiado. No afirmes causalidad. Perfil: ${JSON.stringify(profile)}`;
+  const prompt = `Actúa como analista de datos. Responde en español, con prudencia y sin inventar. Analiza este perfil local y propone hasta cinco acciones concretas de limpieza, métricas o visualizaciones. Si el usuario ha pedido una operación, explica cómo ejecutarla con los campos disponibles y no inventes columnas. Si hay coordenadas, recomienda un mapa apropiado. No afirmes causalidad. Petición del usuario: ${request || 'sin petición adicional'}. Perfil: ${JSON.stringify(profile)}`;
   const answer = await state.aiSession.prompt(prompt);
   setAIStatus('Gemini Nano listo', 'ready');
   return answer;
+}
+
+function assistantFieldMatches(command) {
+  const normalized = command.toLocaleLowerCase('es');
+  return state.columns.filter(column => normalized.includes(String(column.name).toLocaleLowerCase('es')));
+}
+
+function buildAssistantPlan(command) {
+  const text = String(command || '').trim();
+  const normalized = text.toLocaleLowerCase('es');
+  const matches = assistantFieldMatches(text);
+  const numeric = analysisNumericColumns();
+  const geo = coordinates();
+  const temporal = state.columns.find(column => column.type === 'date' || /^(year|año|date|fecha|time|period|periodo)$/i.test(column.name));
+  const dimension = matches.find(column => column.type === 'text' || column.type === 'date')?.name || state.columns.find(column => column.type === 'text')?.name || state.xField;
+  const metric = matches.find(column => column.type === 'number' && !/^(id|_row_id|latitude|longitude|year|año)$/i.test(column.name))?.name || metricField();
+  let chartType = 'bar';
+  let xField = dimension;
+  let yField = metric || state.yField;
+  let aggregation = 'sum';
+  if (/calor|heatmap|bivariad/.test(normalized) && numeric.length >= 2) { chartType = 'heatmap'; xField = matches.find(column => column.type === 'number')?.name || numeric[0].name; yField = matches.filter(column => column.type === 'number')[1]?.name || numeric[1].name; aggregation = 'count'; }
+  else if (/mapa|espacial|geogr[aá]fic|ubicaci[oó]n/.test(normalized) && geo.longitude && geo.latitude) { chartType = /densidad|concentraci[oó]n|cuadr[ií]cula/.test(normalized) ? 'density-map' : 'map'; xField = geo.longitude; yField = geo.latitude; aggregation = 'count'; }
+  else if (/dispersi[oó]n|correlaci[oó]n|relaci[oó]n/.test(normalized) && numeric.length >= 2) { chartType = 'scatter'; xField = matches.find(column => column.type === 'number')?.name || numeric[0].name; yField = matches.filter(column => column.type === 'number')[1]?.name || numeric[1].name; }
+  else if (/histograma|distribuci[oó]n/.test(normalized)) { chartType = 'histogram'; xField = dimension; yField = matches.find(column => column.type === 'number')?.name || metric; }
+  else if (/caja|bigotes|variabilidad|at[ií]pic/.test(normalized)) chartType = 'boxplot';
+  else if (/anillo|proporci[oó]n|porcentaje|composici[oó]n/.test(normalized)) chartType = 'donut';
+  else if (/a[áa]rea/.test(normalized)) chartType = 'area';
+  else if (/l[ií]nea|evoluci[oó]n|tendencia|temporal|serie/.test(normalized)) { chartType = 'line'; xField = temporal?.name || dimension; }
+  else if (/recuento|contar|cu[aá]ntos/.test(normalized)) aggregation = 'count';
+  if (chartType === 'histogram') xField = yField;
+  if (chartType === 'line' && !temporal && !matches.some(column => column.type === 'date')) xField = dimension;
+  const title = text ? text.replace(/\s+/g, ' ').slice(0, 80) : 'Visualización asistida';
+  return { chartType, xField, yField, aggregation, chartSort: /ranking|mayor|orden/.test(normalized) ? 'value-desc' : 'original', title };
+}
+
+function executeAssistantCommand(command) {
+  const plan = buildAssistantPlan(command);
+  if (!plan.xField || !plan.yField) throw new Error('No he encontrado campos suficientes para construir esa visualización.');
+  state.chartType = plan.chartType;
+  state.xField = plan.xField;
+  state.yField = plan.yField;
+  state.aggregation = plan.aggregation;
+  state.chartSort = plan.chartSort;
+  state.chartTitle = plan.title;
+  state.dashboard.cards.push({ id: `assistant-${Date.now()}`, type: 'chart', title: plan.title, chartType: plan.chartType, xField: plan.xField, yField: plan.yField, aggregation: plan.aggregation, chartSort: plan.chartSort });
+  state.activeTab = 'overview';
+  renderAll();
+  announce(`Orden aplicada: ${CHART_LABELS[plan.chartType]} con ${plan.xField} y ${plan.yField}.`);
 }
 
 function applyRecommendedDashboard() {
@@ -313,19 +361,23 @@ function applyRecommendedDashboard() {
 
 function showAssistantModal() {
   document.querySelector('#assistant-modal')?.remove();
-  document.body.insertAdjacentHTML('beforeend', `<div id="assistant-modal" class="modal-backdrop"><div class="modal-card assistant-card" role="dialog" aria-modal="true" aria-labelledby="assistant-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Asistencia local</span><h2 id="assistant-title">Analista de tu conjunto</h2></div><button class="remove-card" data-modal-action="close" aria-label="Cerrar ventana">×</button></div><p class="helper">Los cálculos se ejecutan en este navegador. Gemini Nano solo se usa si Chrome lo ofrece; no se envían filas a un servidor.</p><div class="assistant-actions"><button class="button button-soft" data-modal-action="insights">Calcular resumen completo</button><button class="button button-ghost" data-modal-action="recommend">Montar análisis automático</button><button class="button button-primary" data-modal-action="nano">Preguntar a Gemini Nano</button></div><div id="assistant-result" class="assistant-result" aria-live="polite"><span class="muted">Elige una acción para empezar.</span></div><div class="provenance"><strong>Privacidad y límites</strong><span>El asistente recibe solo un perfil compacto para interpretar el conjunto. Verifica siempre definiciones, unidades, proyección y calidad de los datos antes de publicar conclusiones.</span></div></div></div>`);
+  document.body.insertAdjacentHTML('beforeend', `<div id="assistant-modal" class="modal-backdrop"><div class="modal-card assistant-card" role="dialog" aria-modal="true" aria-labelledby="assistant-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Asistencia local</span><h2 id="assistant-title">Analista de tu conjunto</h2></div><button class="remove-card" data-modal-action="close" aria-label="Cerrar ventana">×</button></div><p class="helper">Los cálculos se ejecutan en este navegador. Gemini Nano solo se usa si Chrome lo ofrece; no se envían filas a un servidor.</p><label for="assistant-command">Orden para el dashboard<span><textarea id="assistant-command" rows="3" maxlength="240" placeholder="Ej.: crea un mapa de calor de finds y area_ha"></textarea></span></label><div class="assistant-actions"><button class="button button-primary" data-modal-action="execute">Ejecutar orden local</button><button class="button button-soft" data-modal-action="insights">Calcular resumen completo</button><button class="button button-ghost" data-modal-action="recommend">Montar análisis automático</button><button class="button button-ghost" data-modal-action="nano">Preguntar a Gemini Nano</button></div><div id="assistant-result" class="assistant-result" aria-live="polite"><span class="muted">La orden local crea una visual y la añade al dashboard. Gemini Nano puede explicar la petición si está disponible.</span></div><div class="provenance"><strong>Privacidad y límites</strong><span>El asistente recibe solo un perfil compacto para interpretar el conjunto. Verifica siempre definiciones, unidades, proyección y calidad de los datos antes de publicar conclusiones.</span></div></div></div>`);
   const modal = document.querySelector('#assistant-modal');
   const previousFocus = document.activeElement;
   const close = () => { modal?.remove(); previousFocus?.focus?.(); };
   modal.addEventListener('click', event => { if (event.target === modal || event.target.closest('[data-modal-action="close"]')) close(); });
   modal.querySelector('[data-modal-action="insights"]').addEventListener('click', () => { modal.querySelector('#assistant-result').innerHTML = `<ul class="assistant-list">${deterministicInsights().map(item => `<li>${esc(item)}</li>`).join('')}</ul>`; });
   modal.querySelector('[data-modal-action="recommend"]').addEventListener('click', () => { close(); applyRecommendedDashboard(); });
+  modal.querySelector('[data-modal-action="execute"]').addEventListener('click', () => {
+    try { executeAssistantCommand(modal.querySelector('#assistant-command').value); close(); }
+    catch (error) { modal.querySelector('#assistant-result').innerHTML = `<div class="alert alert-error">${esc(error.message)}</div>`; }
+  });
   modal.querySelector('[data-modal-action="nano"]').addEventListener('click', async event => {
     const button = event.currentTarget;
     const result = modal.querySelector('#assistant-result');
     button.disabled = true;
     result.innerHTML = '<span class="muted">Comprobando compatibilidad y preparando el modelo…</span>';
-    try { result.innerHTML = `<div class="assistant-answer">${esc(await askLocalModel()).replace(/\n/g, '<br>')}</div>`; }
+    try { result.innerHTML = `<div class="assistant-answer">${esc(await askLocalModel(modal.querySelector('#assistant-command').value.trim())).replace(/\n/g, '<br>')}</div>`; }
     catch (error) { result.innerHTML = `<div class="alert alert-error">${esc(error.message)}<br><small>El resumen determinista sigue disponible y no requiere IA.</small></div>`; }
     finally { button.disabled = false; }
   });
