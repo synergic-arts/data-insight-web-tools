@@ -1,0 +1,17 @@
+id,year,province,site,category,finds,area_ha,latitude,longitude,status
+1,2020,Cuenca,Valeria,romano,84,12.4,39.792,-2.891,documentado
+2,2021,Toledo,Vega Baja,visigodo,112,9.8,39.854,-4.031,en estudio
+3,2022,Huesca,Labitolosa,romano,67,7.1,42.141,0.154,documentado
+4,2023,Jaén,Cástulo,ibero,138,18.2,38.039,-3.631,prioritario
+5,2024,Burgos,Clunia,romano,96,21.7,41.805,-3.358,documentado
+6,2020,Málaga,Acinipo,romano,58,5.4,36.832,-5.235,en estudio
+7,2021,Soria,Numancia,celtibero,121,13.6,41.806,-2.445,prioritario
+8,2022,Lugo,Santa Eulalia,medieval,42,3.9,43.018,-7.568,documentado
+9,2023,Zaragoza,Bilbilis,romano,103,11.2,41.392,-1.613,documentado
+10,2024,Almería,Los Millares,calcolitico,76,14.9,37.173,-2.413,prioritario
+11,2020,Cáceres,Cáparra,romano,51,6.3,40.192,-6.098,en estudio
+12,2021,Navarra,Andelos,romano,69,8.6,42.564,-1.509,documentado
+13,2022,Asturias,Coaña,castreño,35,4.2,43.512,-6.745,documentado
+14,2023,Valencia,Sagunto,iberorromano,117,16.5,39.681,-0.278,prioritario
+15,2024,Sevilla,Itálica,romano,144,20.1,37.442,-6.045,documentado
+16,2022,León,Lancia,astur,48,10.7,42.548,-5.416,en estudio

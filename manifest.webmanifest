@@ -1,0 +1,10 @@
+{
+  "name": "Data Insight Web Tools",
+  "short_name": "Data Insight",
+  "description": "Análisis y dashboards locales en el navegador.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#08111e",
+  "theme_color": "#70e1bb",
+  "icons": []
+}
