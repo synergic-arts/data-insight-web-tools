@@ -65,7 +65,9 @@ function lineChart(rows, xField, yField, aggregation, ordering) {
 function donutChart(rows, xField, yField, aggregation, ordering) {
   const groups = groupRows(rows, xField, yField, aggregation, ordering).slice(0, 8);
   if (!groups.length) return emptyChart();
-  const total = groups.reduce((sum, item) => sum + item.value, 0) || 1;
+  if (groups.some(item => item.value < 0)) return emptyChart('El anillo necesita valores no negativos');
+  const total = groups.reduce((sum, item) => sum + item.value, 0);
+  if (total <= 0) return emptyChart('El anillo necesita un total positivo');
   let offset = 0;
   const arcs = groups.map((item, index) => {
     const length = item.value / total * 251.2;

@@ -90,6 +90,7 @@ export function applyFilters() {
       if (!filter) return true;
       const value = row[key];
       const number = toNumber(value);
+      if (filter.contains !== undefined && !String(value ?? '').toLowerCase().includes(String(filter.contains).toLowerCase())) return false;
       if (filter.value !== '' && filter.value !== undefined && filter.value !== null && String(value ?? '') !== String(filter.value)) return false;
       if (filter.min !== '' && filter.min !== undefined && (number === null || number < Number(filter.min))) return false;
       if (filter.max !== '' && filter.max !== undefined && (number === null || number > Number(filter.max))) return false;
@@ -139,7 +140,7 @@ export function parseAny(text, fileName = '') {
     try {
       const parsed = JSON.parse(trimmed);
       if (parsed.type === 'FeatureCollection' && Array.isArray(parsed.features)) {
-        return parsed.features.map((feature, index) => {
+        return parsed.features.filter(feature => feature && typeof feature === 'object').map((feature, index) => {
           const properties = { ...(feature.properties || {}), feature_id: feature.id ?? index + 1 };
           const coordinates = feature.geometry?.coordinates;
           if (Array.isArray(coordinates)) {
@@ -167,7 +168,11 @@ export function parseAny(text, fileName = '') {
 }
 
 export function loadRows(rows, meta = {}) {
-  state.rows = rows.map(row => ({ ...row }));
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  state.rows = sourceRows.map((row, index) => {
+    if (row && typeof row === 'object' && !Array.isArray(row)) return { ...row };
+    return { value: row ?? '', row_number: index + 1 };
+  });
   state.datasetName = meta.name || state.datasetName;
   state.sourceKind = meta.kind || 'local';
   state.sourceDetail = meta.detail || 'Archivo cargado localmente en este navegador.';
@@ -176,9 +181,11 @@ export function loadRows(rows, meta = {}) {
   state.sortKey = '';
   state.sortDir = 'asc';
   state.tableLimit = 20;
+  state.chartType = 'bar';
   state.chartSort = 'original';
   state.chartTitle = 'Visualización principal';
   rebuildColumns();
+  state.aggregation = state.columns.some(column => column.type === 'number') ? 'sum' : 'count';
   applyFilters();
 }
 

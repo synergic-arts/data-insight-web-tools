@@ -4,20 +4,58 @@ import { chartSVG, tableHTML } from './charts.js';
 const root = document.body;
 const mode = root.dataset.mode || 'dashboard';
 const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'analyze' : 'overview';
+const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
+const CHART_TYPES = ['bar', 'line', 'donut', 'scatter', 'histogram'];
+const AGGREGATIONS = ['sum', 'avg', 'count'];
+const SORT_MODES = ['original', 'value-desc', 'value-asc'];
 const numericColumns = () => state.columns.filter(column => column.type === 'number');
-const metricField = () => { const all = numericColumns(); const preferred = all.find(column => /find|count|total|value|amount|score|area|metric/i.test(column.name) && !/^(id|_row_id|latitude|longitude)$/i.test(column.name)); return preferred?.name || all.find(column => !/^(id|_row_id|latitude|longitude)$/i.test(column.name))?.name || all[0]?.name || state.yField; };
+const metricField = () => { const all = numericColumns(); const preferred = all.find(column => /find|count|total|value|amount|score|area|metric/i.test(column.name) && !/^(id|_row_id|latitude|longitude)$/i.test(column.name)); return preferred?.name || all.find(column => !/^(id|_row_id|latitude|longitude)$/i.test(column.name))?.name || all[0]?.name || ''; };
+const hasColumn = (name, type = '') => typeof name === 'string' && state.columns.some(column => column.name === name && (!type || column.type === type));
+const safeTab = tab => TAB_IDS.includes(tab) ? tab : 'overview';
+const safeField = (value, fallback, type = '') => hasColumn(value, type) ? value : fallback;
+
+function sanitizeFilters(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter(([key]) => hasColumn(key)).map(([key, filter]) => {
+    if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return [key, {}];
+    const clean = {};
+    ['value', 'contains'].forEach(part => { if (filter[part] !== undefined && filter[part] !== null && String(filter[part]) !== '') clean[part] = String(filter[part]); });
+    ['min', 'max'].forEach(part => { if (filter[part] !== undefined && filter[part] !== null && filter[part] !== '' && Number.isFinite(Number(filter[part]))) clean[part] = String(filter[part]); });
+    return [key, clean];
+  }).filter(([, filter]) => Object.keys(filter).length));
+}
+
+function sanitizeDashboard(raw) {
+  if (!raw || !Array.isArray(raw.cards)) return defaultDashboard();
+  const cards = raw.cards.filter(card => card && typeof card === 'object' && ['kpi', 'chart', 'table'].includes(card.type)).map((card, index) => {
+    const type = card.type;
+    const id = typeof card.id === 'string' && card.id.trim() ? card.id.trim().slice(0, 80) : `${type}-${index + 1}`;
+    const title = typeof card.title === 'string' ? card.title.trim().slice(0, 100) : '';
+    if (type === 'kpi') {
+      const metric = ['rows', 'sum', 'avg', 'complete'].includes(card.metric) ? card.metric : 'rows';
+      if ((metric === 'sum' || metric === 'avg') && !numericColumns().length) return { id, type, metric: 'rows', title };
+      return { id, type, metric, field: safeField(card.field, metricField(), 'number'), title };
+    }
+    if (type === 'table') return { id, type, title: title || 'Registros' };
+    const aggregation = AGGREGATIONS.includes(card.aggregation) ? card.aggregation : 'sum';
+    return { id, type, title: title || 'Visualización', chartType: CHART_TYPES.includes(card.chartType) ? card.chartType : 'bar', xField: safeField(card.xField, state.xField), yField: safeField(card.yField, state.yField, aggregation === 'count' ? '' : 'number'), aggregation, chartSort: SORT_MODES.includes(card.chartSort) ? card.chartSort : 'original' };
+  });
+  return { cards };
+}
 
 function defaultDashboard() {
   const numeric = metricField();
-  const dimension = state.columns.find(column => column.type === 'text')?.name || state.xField;
+  const dimension = state.columns.find(column => column.type === 'text')?.name || state.xField || state.columns[0]?.name || '';
+  const aggregation = numeric ? 'sum' : 'count';
+  const cards = [
+    { id: 'kpi-rows', type: 'kpi', metric: 'rows' }
+  ];
+  if (numeric) cards.push({ id: 'kpi-sum', type: 'kpi', metric: 'sum', field: numeric });
+  cards.push({ id: 'kpi-complete', type: 'kpi', metric: 'complete' });
+  if (dimension) cards.push({ id: 'chart-main', type: 'chart', title: 'Distribución principal', chartType: 'bar', xField: dimension, yField: numeric || dimension, aggregation });
+  cards.push({ id: 'table-main', type: 'table', title: 'Registros filtrados' });
   return {
-    cards: [
-      { id: 'kpi-rows', type: 'kpi', metric: 'rows' },
-      { id: 'kpi-sum', type: 'kpi', metric: 'sum', field: numeric },
-      { id: 'kpi-complete', type: 'kpi', metric: 'complete' },
-      { id: 'chart-main', type: 'chart', title: 'Distribución principal', chartType: 'bar', xField: dimension, yField: numeric, aggregation: 'sum' },
-      { id: 'table-main', type: 'table', title: 'Registros filtrados' }
-    ]
+    cards
   };
 }
 
@@ -100,26 +138,31 @@ function renderOverview() {
 }
 
 function renderFilters() {
-  const controls = state.columns.slice(0, 10).map(column => {
-    const values = [...new Set(state.rows.map(row => row[column.name]).filter(value => value !== null && value !== undefined && String(value) !== ''))].slice(0, 30);
-    if (column.type === 'number') return `<div class="filter-field"><label>${esc(column.name)}<small>mínimo / máximo</small></label><div class="range-fields"><input type="number" placeholder="mín" data-filter-kind="min" data-filter-key="${esc(column.name)}" value="${esc(state.filters[column.name]?.min ?? '')}"><input type="number" placeholder="máx" data-filter-kind="max" data-filter-key="${esc(column.name)}" value="${esc(state.filters[column.name]?.max ?? '')}"></div></div>`;
-    return `<div class="filter-field"><label>${esc(column.name)}<small>${format(values.length, 0)} valores</small></label><select data-filter-kind="value" data-filter-key="${esc(column.name)}"><option value="">Todos</option>${values.map(value => `<option value="${esc(value)}" ${String(state.filters[column.name]?.value) === String(value) ? 'selected' : ''}>${esc(value)}</option>`).join('')}</select></div>`;
+  const controls = state.columns.map(column => {
+    if (column.type === 'number') return `<div class="filter-field"><label>${esc(column.name)}<small>mínimo / máximo</small></label><div class="range-fields"><input aria-label="Mínimo de ${esc(column.name)}" type="number" placeholder="mín" data-filter-kind="min" data-filter-key="${esc(column.name)}" value="${esc(state.filters[column.name]?.min ?? '')}"><input aria-label="Máximo de ${esc(column.name)}" type="number" placeholder="máx" data-filter-kind="max" data-filter-key="${esc(column.name)}" value="${esc(state.filters[column.name]?.max ?? '')}"></div></div>`;
+    return `<div class="filter-field"><label for="contains-${esc(column.name)}">${esc(column.name)}<small>contiene texto</small></label><input id="contains-${esc(column.name)}" type="search" placeholder="Contiene…" data-filter-kind="contains" data-filter-key="${esc(column.name)}" value="${esc(state.filters[column.name]?.contains ?? '')}"></div>`;
   }).join('');
-  const active = Object.entries(state.filters).flatMap(([key, filter]) => Object.entries(filter).map(([kind, value]) => `<button class="filter-chip" data-action="remove-filter" data-key="${esc(key)}" data-filter-part="${esc(kind)}">${esc(key)}: ${esc(value)} ×</button>`)).join('');
+  const active = Object.entries(state.filters).flatMap(([key, filter]) => Object.entries(filter).map(([kind, value]) => `<button class="filter-chip" data-action="remove-filter" data-key="${esc(key)}" data-filter-part="${esc(kind)}">${esc(key)} ${kind === 'contains' ? 'contiene' : kind}: ${esc(value)} ×</button>`)).join('');
   return `<div class="filter-panel"><div class="filter-panel-header"><div><span class="eyebrow">Filtros</span><strong>${active ? 'Filtros activos' : 'Todos los registros'}</strong></div><button class="button button-ghost" data-action="reset-filters">Limpiar filtros</button></div><div class="filter-search"><label class="sr-only" for="search-input">Buscar en cualquier campo</label><input id="search-input" type="search" aria-label="Buscar en cualquier campo" placeholder="Buscar en cualquier campo…" value="${esc(state.search)}"><button class="button button-soft" data-action="apply-search">Aplicar</button></div>${active ? `<div class="filter-chips">${active}</div>` : ''}<div class="filter-grid">${controls || '<span class="muted">Carga un conjunto de datos para crear filtros.</span>'}</div></div>`;
 }
 
 function renderPrepare() {
-  return `${renderFilters()}<div class="panel"><div class="panel-heading"><div><span class="eyebrow">Esquema y muestra</span><h3>${format(state.filtered.length, 0)} filas filtradas</h3></div><span class="panel-note">${format(state.columns.length, 0)} campos detectados${state.columns.length > 10 ? ' · filtros en los 10 primeros' : ''}</span></div>${tableHTML(state.filtered, state.columns, 18)}</div>`;
+  return `${renderFilters()}<div class="panel"><div class="panel-heading"><div><span class="eyebrow">Esquema y muestra</span><h3>${format(state.filtered.length, 0)} filas filtradas</h3></div><span class="panel-note">${format(state.columns.length, 0)} campos detectados · todos disponibles para filtrar</span></div>${tableHTML(state.filtered, state.columns, 18)}</div>`;
 }
 
 function fieldSelect(id, value, numericOnly = false) {
   const options = state.columns.filter(column => !numericOnly || column.type === 'number').map(column => `<option value="${esc(column.name)}" ${column.name === value ? 'selected' : ''}>${esc(column.name)} · ${column.type}</option>`).join('');
-  return `<select id="${id}">${options}</select>`;
+  return options ? `<select id="${id}">${options}</select>` : `<select id="${id}" disabled><option>Sin campos disponibles</option></select>`;
 }
 
 function renderAnalyze() {
-  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica<span>${fieldSelect('y-field', state.yField, true)}</span></label><label>Tipo de gráfico<select id="chart-type"><option value="bar" ${state.chartType === 'bar' ? 'selected' : ''}>Barras</option><option value="line" ${state.chartType === 'line' ? 'selected' : ''}>Línea</option><option value="donut" ${state.chartType === 'donut' ? 'selected' : ''}>Anillo</option><option value="scatter" ${state.chartType === 'scatter' ? 'selected' : ''}>Dispersión</option><option value="histogram" ${state.chartType === 'histogram' ? 'selected' : ''}>Histograma</option></select></label><label>Agregación<select id="aggregation"><option value="sum" ${state.aggregation === 'sum' ? 'selected' : ''}>Suma</option><option value="avg" ${state.aggregation === 'avg' ? 'selected' : ''}>Media</option><option value="count" ${state.aggregation === 'count' ? 'selected' : ''}>Recuento</option></select></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">Los gráficos se calculan en memoria con las filas filtradas y se pueden exportar junto al proyecto.</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(state.yField)} por ${esc(state.xField)}</h3></div><span class="panel-note">${format(state.filtered.length, 0)} filas</span></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, state.aggregation)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
+  const hasMetric = numericColumns().length > 0;
+  const aggregation = hasMetric && AGGREGATIONS.includes(state.aggregation) ? state.aggregation : 'count';
+  if (state.aggregation !== aggregation) state.aggregation = aggregation;
+  const disabledMetricOptions = hasMetric ? '' : ' disabled';
+  const helper = hasMetric ? 'Los gráficos se calculan en memoria con las filas filtradas y se pueden exportar junto al proyecto.' : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
+  const previewTitle = state.chartTitle || `${state.yField} por ${state.xField}`;
+  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Tipo de gráfico<select id="chart-type"><option value="bar" ${state.chartType === 'bar' ? 'selected' : ''}>Barras</option><option value="line" ${state.chartType === 'line' ? 'selected' : ''}>Línea</option><option value="donut" ${state.chartType === 'donut' ? 'selected' : ''}>Anillo</option><option value="scatter" ${state.chartType === 'scatter' ? 'selected' : ''}>Dispersión</option><option value="histogram" ${state.chartType === 'histogram' ? 'selected' : ''}>Histograma</option></select></label><label>Agregación<select id="aggregation"><option value="sum" ${aggregation === 'sum' ? 'selected' : ''}${disabledMetricOptions}>Suma</option><option value="avg" ${aggregation === 'avg' ? 'selected' : ''}${disabledMetricOptions}>Media</option><option value="count" ${aggregation === 'count' ? 'selected' : ''}>Recuento</option></select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper}</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><span class="panel-note">${format(state.filtered.length, 0)} filas</span></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
 }
 
 function enhanceAnalyzeUI() {
@@ -213,9 +256,13 @@ async function importDataset(file) {
 
 function showPasteModal() {
   document.querySelector('#paste-modal')?.remove();
-  document.body.insertAdjacentHTML('beforeend', `<div id="paste-modal" class="modal-backdrop"><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="paste-title"><div class="panel-heading"><div><span class="eyebrow">Entrada local</span><h2 id="paste-title">Pega CSV, TSV o JSON</h2></div><button class="remove-card" data-action="close-paste">×</button></div><textarea id="paste-data" rows="12" placeholder="provincia,valor\nCuenca,12\nToledo,18"></textarea><div class="modal-actions"><button class="button button-ghost" data-action="close-paste">Cancelar</button><button class="button button-primary" data-action="apply-paste">Usar estos datos</button></div></div></div>`);
+  document.body.insertAdjacentHTML('beforeend', `<div id="paste-modal" class="modal-backdrop"><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="paste-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Entrada local</span><h2 id="paste-title">Pega CSV, TSV o JSON</h2></div><button class="remove-card" data-action="close-paste" aria-label="Cerrar ventana">×</button></div><label class="sr-only" for="paste-data">Datos CSV, TSV o JSON</label><textarea id="paste-data" rows="12" placeholder="provincia,valor\nCuenca,12\nToledo,18"></textarea><div class="modal-actions"><button class="button button-ghost" data-action="close-paste">Cancelar</button><button class="button button-primary" data-action="apply-paste">Usar estos datos</button></div></div></div>`);
   const modal = document.querySelector('#paste-modal');
-  const close = () => modal?.remove();
+  const previousFocus = document.activeElement;
+  const close = () => { document.removeEventListener('keydown', onKeyDown); modal?.remove(); previousFocus?.focus?.(); };
+  const onKeyDown = event => { if (event.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKeyDown);
+  modal.addEventListener('click', event => { if (event.target === modal) close(); });
   modal.querySelectorAll('[data-action="close-paste"]').forEach(button => button.addEventListener('click', close));
   modal.querySelector('[data-action="apply-paste"]').addEventListener('click', () => {
     try {
@@ -237,20 +284,22 @@ async function importProject(file) {
   try {
     const project = JSON.parse(await file.text());
     if (project.format !== 'data-insight-project' || !Array.isArray(project.rows) || project.rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new Error('El archivo no es un proyecto Data Insight válido.');
-    loadRows(project.rows, project.meta || { name: file.name, kind: 'local' });
-    state.filters = project.filters || {};
-    state.search = project.search || '';
-    state.xField = project.xField || state.xField;
-    state.yField = project.yField || state.yField;
-    state.chartType = project.chartType || 'bar';
-    state.chartSort = ['original', 'value-desc', 'value-asc'].includes(project.chartSort) ? project.chartSort : 'original';
-    state.chartTitle = project.chartTitle || 'Visualización principal';
-    state.aggregation = project.aggregation || 'sum';
-    state.sortKey = project.sortKey || '';
+    const meta = project.meta && typeof project.meta === 'object' ? project.meta : {};
+    const kind = ['synthetic', 'pasted', 'local'].includes(meta.kind) ? meta.kind : 'local';
+    loadRows(project.rows, { name: typeof meta.name === 'string' && meta.name.trim() ? meta.name : file.name, kind, detail: typeof meta.detail === 'string' ? meta.detail : 'Proyecto local procesado en este navegador.' });
+    state.filters = sanitizeFilters(project.filters);
+    state.search = typeof project.search === 'string' ? project.search.slice(0, 500) : '';
+    state.xField = safeField(project.xField, state.xField);
+    state.yField = safeField(project.yField, state.yField, 'number');
+    state.chartType = CHART_TYPES.includes(project.chartType) ? project.chartType : 'bar';
+    state.chartSort = SORT_MODES.includes(project.chartSort) ? project.chartSort : 'original';
+    state.chartTitle = typeof project.chartTitle === 'string' && project.chartTitle.trim() ? project.chartTitle.trim().slice(0, 80) : 'Visualización principal';
+    state.aggregation = AGGREGATIONS.includes(project.aggregation) ? project.aggregation : 'sum';
+    state.sortKey = hasColumn(project.sortKey) ? project.sortKey : '';
     state.sortDir = project.sortDir === 'desc' ? 'desc' : 'asc';
     state.tableLimit = Number.isFinite(project.tableLimit) ? Math.max(20, project.tableLimit) : 20;
-    state.dashboard = project.dashboard || defaultDashboard();
-    state.activeTab = project.activeTab || 'overview';
+    state.dashboard = sanitizeDashboard(project.dashboard);
+    state.activeTab = safeTab(project.activeTab);
     applyFilters();
     announce('Proyecto abierto correctamente.');
     renderAll();
@@ -283,6 +332,7 @@ function updateFilter(input) {
   const value = input.value;
   const filter = { ...(state.filters[key] || {}) };
   if (kind === 'value') { if (value === '') delete filter.value; else filter.value = value; }
+  if (kind === 'contains') { if (value === '') delete filter.contains; else filter.contains = value; }
   if (kind === 'min') { if (value === '') delete filter.min; else filter.min = value; }
   if (kind === 'max') { if (value === '') delete filter.max; else filter.max = value; }
   if (!Object.keys(filter).length) delete state.filters[key]; else state.filters[key] = filter;
@@ -291,6 +341,7 @@ function updateFilter(input) {
 
 function bind() {
   const app = document.querySelector('.app-shell');
+  let filterInputTimer = 0;
   app.addEventListener('click', event => {
     const tab = event.target.closest('[data-tab]')?.dataset.tab;
     if (tab) { state.activeTab = tab; renderAll(); return; }
@@ -318,7 +369,6 @@ function bind() {
     if (action === 'show-more') { state.tableLimit += 20; renderAll(); }
     if (action === 'add-calculated') addCalculatedField();
     if (action === 'apply-search') { state.search = document.querySelector('#search-input')?.value || ''; renderAll(); }
-    if (action === 'add-chart') { state.dashboard.cards.push({ id: `chart-${Date.now()}`, type: 'chart', title: `${state.yField} por ${state.xField}`, chartType: state.chartType, xField: state.xField, yField: state.yField, aggregation: state.aggregation }); announce('Visual añadido al dashboard.'); renderAll(); }
     if (action === 'add-table') { state.dashboard.cards.push({ id: `table-${Date.now()}`, type: 'table', title: 'Nueva tabla' }); announce('Tabla añadida al dashboard.'); renderAll(); }
     if (action === 'edit-card') { const card = state.dashboard.cards.find(item => item.id === actionNode.dataset.id); if (card) { const title = window.prompt('Título de la tarjeta:', card.title || 'Visualización'); if (title?.trim()) { card.title = title.trim(); renderAll(); } } }
     if (action === 'duplicate-card') { const card = state.dashboard.cards.find(item => item.id === actionNode.dataset.id); if (card) { state.dashboard.cards.push({ ...card, id: `${card.type}-${Date.now()}`, title: `${card.title || 'Tarjeta'} (copia)` }); announce('Tarjeta duplicada.'); renderAll(); } }
@@ -327,8 +377,8 @@ function bind() {
     if (action === 'fullscreen') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.(); }
   });
   app.addEventListener('change', event => {
-    if (event.target.id === 'file-input') importDataset(event.target.files[0]);
-    if (event.target.id === 'project-input') importProject(event.target.files[0]);
+    if (event.target.id === 'file-input') { importDataset(event.target.files[0]); event.target.value = ''; }
+    if (event.target.id === 'project-input') { importProject(event.target.files[0]); event.target.value = ''; }
     if (event.target.matches('[data-filter-kind]')) updateFilter(event.target);
     if (event.target.id === 'x-field') { state.xField = event.target.value; renderAll(); }
     if (event.target.id === 'y-field') { state.yField = event.target.value; renderAll(); }
@@ -336,6 +386,12 @@ function bind() {
     if (event.target.id === 'aggregation') { state.aggregation = event.target.value; renderAll(); }
     if (event.target.id === 'chart-sort') { state.chartSort = ['original', 'value-desc', 'value-asc'].includes(event.target.value) ? event.target.value : 'original'; renderAll(); }
     if (event.target.id === 'chart-title') { state.chartTitle = event.target.value.trim() || 'Visualización principal'; renderAll(); }
+  });
+  app.addEventListener('input', event => {
+    if (!event.target.matches('[data-filter-kind]')) return;
+    window.clearTimeout(filterInputTimer);
+    const input = event.target;
+    filterInputTimer = window.setTimeout(() => updateFilter(input), 250);
   });
   app.addEventListener('keydown', event => { if (event.key === 'Enter' && event.target.id === 'search-input') { state.search = event.target.value; renderAll(); } });
 }
