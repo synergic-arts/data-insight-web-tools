@@ -6,8 +6,8 @@ const transformationHistory = [];
 const mode = root.dataset.mode || 'dashboard';
 const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'analyze' : 'overview';
 const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
-const CHART_TYPES = ['bar', 'line', 'area', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'heatmap'];
-const CHART_LABELS = { bar: 'Barras', line: 'Línea', area: 'Área', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', heatmap: 'Mapa de calor bivariado' };
+const CHART_TYPES = ['bar', 'line', 'area', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'heatmap', 'funnel', 'waterfall', 'radar', 'treemap'];
+const CHART_LABELS = { bar: 'Barras', line: 'Línea', area: 'Área', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', heatmap: 'Mapa de calor bivariado', funnel: 'Embudo', waterfall: 'Cascada', radar: 'Radar', treemap: 'Treemap' };
 const AGGREGATIONS = ['sum', 'avg', 'count'];
 const SORT_MODES = ['original', 'value-desc', 'value-asc'];
 const numericColumns = () => state.columns.filter(column => column.type === 'number');
@@ -19,6 +19,41 @@ const safeField = (value, fallback, type = '') => hasColumn(value, type) ? value
 const coordinates = () => geoFields(state.columns);
 const firstTextField = () => state.columns.find(column => column.type === 'text')?.name || state.columns[0]?.name || '';
 const firstNumericField = () => state.columns.find(column => column.type === 'number')?.name || '';
+
+function safeSpan(value, fallback, maximum = 12) {
+  const number = Number(value);
+  return Number.isInteger(number) ? Math.min(maximum, Math.max(1, number)) : fallback;
+}
+
+function layoutDefaults(card) {
+  if (card.type === 'kpi') return { colSpan: 3, rowSpan: 1 };
+  if (card.type === 'table') return { colSpan: 12, rowSpan: 2 };
+  if (['map', 'bubble-map', 'density-map', 'heatmap', 'scatter', 'line', 'area'].includes(card.chartType)) return { colSpan: 6, rowSpan: 2 };
+  return { colSpan: 4, rowSpan: 2 };
+}
+
+function withLayout(card) {
+  const defaults = layoutDefaults(card);
+  return { ...card, colSpan: safeSpan(card.colSpan, defaults.colSpan), rowSpan: safeSpan(card.rowSpan, defaults.rowSpan, 4) };
+}
+
+function autoLayoutCards(cards, viewportWidth = window.innerWidth) {
+  const compact = viewportWidth < 700;
+  const tablet = viewportWidth >= 700 && viewportWidth < 1000;
+  cards.forEach(card => {
+    const defaults = layoutDefaults(card);
+    card.colSpan = compact ? 12 : tablet ? Math.min(12, defaults.colSpan * 2) : defaults.colSpan;
+    card.rowSpan = compact ? 1 : defaults.rowSpan;
+  });
+  return cards;
+}
+
+function cardSortRank(card) {
+  if (card.type === 'kpi') return 0;
+  if (card.type === 'table') return 3;
+  if (['map', 'bubble-map', 'density-map', 'heatmap'].includes(card.chartType)) return 2;
+  return 1;
+}
 
 function sanitizeFilters(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
@@ -39,12 +74,12 @@ function sanitizeDashboard(raw) {
     const title = typeof card.title === 'string' ? card.title.trim().slice(0, 100) : '';
     if (type === 'kpi') {
       const metric = ['rows', 'sum', 'avg', 'complete'].includes(card.metric) ? card.metric : 'rows';
-      if ((metric === 'sum' || metric === 'avg') && !numericColumns().length) return { id, type, metric: 'rows', title };
-      return { id, type, metric, field: safeField(card.field, metricField(), 'number'), title };
+      if ((metric === 'sum' || metric === 'avg') && !numericColumns().length) return withLayout({ id, type, metric: 'rows', title });
+      return withLayout({ id, type, metric, field: safeField(card.field, metricField(), 'number'), title });
     }
-    if (type === 'table') return { id, type, title: title || 'Registros' };
+    if (type === 'table') return withLayout({ id, type, title: title || 'Registros', colSpan: card.colSpan, rowSpan: card.rowSpan });
     const aggregation = AGGREGATIONS.includes(card.aggregation) ? card.aggregation : 'sum';
-    return { id, type, title: title || 'Visualización', chartType: CHART_TYPES.includes(card.chartType) ? card.chartType : 'bar', xField: safeField(card.xField, state.xField), yField: safeField(card.yField, state.yField, aggregation === 'count' ? '' : 'number'), aggregation, chartSort: SORT_MODES.includes(card.chartSort) ? card.chartSort : 'original' };
+    return withLayout({ id, type, title: title || 'Visualización', chartType: CHART_TYPES.includes(card.chartType) ? card.chartType : 'bar', xField: safeField(card.xField, state.xField), yField: safeField(card.yField, state.yField, aggregation === 'count' ? '' : 'number'), aggregation, chartSort: SORT_MODES.includes(card.chartSort) ? card.chartSort : 'original', colSpan: card.colSpan, rowSpan: card.rowSpan });
   });
   return { cards };
 }
@@ -68,9 +103,7 @@ function defaultDashboard() {
   if (geo.longitude && geo.latitude) cards.push({ id: 'map-main', type: 'chart', title: 'Distribución espacial', chartType: 'map', xField: geo.longitude, yField: geo.latitude, aggregation: 'count' });
   if (geo.longitude && geo.latitude) cards.push({ id: 'density-main', type: 'chart', title: 'Concentración espacial', chartType: 'density-map', xField: geo.longitude, yField: geo.latitude, aggregation: 'count' });
   cards.push({ id: 'table-main', type: 'table', title: 'Registros filtrados' });
-  return {
-    cards
-  };
+  return { cards: autoLayoutCards(cards) };
 }
 
 function shellMarkup() {
@@ -139,19 +172,21 @@ function renderKpi(metric, field) {
 }
 
 function cardActions(card) {
-  return `<div class="card-actions"><button class="card-action" data-action="edit-card" data-id="${esc(card.id)}" title="Renombrar tarjeta" aria-label="Renombrar tarjeta">✎</button><button class="card-action" data-action="duplicate-card" data-id="${esc(card.id)}" title="Duplicar tarjeta" aria-label="Duplicar tarjeta">⧉</button><button class="card-action" data-action="remove-card" data-id="${esc(card.id)}" title="Quitar tarjeta" aria-label="Quitar tarjeta">×</button></div>`;
+  const configure = card.type === 'chart' ? `<button class="card-action" data-action="configure-card" data-id="${esc(card.id)}" title="Personalizar visual" aria-label="Personalizar visual">⚙</button>` : '';
+  return `<div class="card-actions"><button class="card-action" data-action="move-card" data-delta="-1" data-id="${esc(card.id)}" title="Mover arriba" aria-label="Mover arriba">↑</button><button class="card-action" data-action="move-card" data-delta="1" data-id="${esc(card.id)}" title="Mover abajo" aria-label="Mover abajo">↓</button><button class="card-action" data-action="resize-card" data-axis="col" data-delta="-1" data-id="${esc(card.id)}" title="Reducir ancho" aria-label="Reducir ancho">↔−</button><button class="card-action" data-action="resize-card" data-axis="col" data-delta="1" data-id="${esc(card.id)}" title="Aumentar ancho" aria-label="Aumentar ancho">↔＋</button><button class="card-action" data-action="resize-card" data-axis="row" data-delta="-1" data-id="${esc(card.id)}" title="Reducir alto" aria-label="Reducir alto">↕−</button><button class="card-action" data-action="resize-card" data-axis="row" data-delta="1" data-id="${esc(card.id)}" title="Aumentar alto" aria-label="Aumentar alto">↕＋</button>${configure}<button class="card-action" data-action="rename-card" data-id="${esc(card.id)}" title="Renombrar tarjeta" aria-label="Renombrar tarjeta">✎</button><button class="card-action" data-action="duplicate-card" data-id="${esc(card.id)}" title="Duplicar tarjeta" aria-label="Duplicar tarjeta">⧉</button><button class="card-action" data-action="remove-card" data-id="${esc(card.id)}" title="Quitar tarjeta" aria-label="Quitar tarjeta">×</button></div>`;
 }
 
 function cardHTML(card) {
-  if (card.type === 'kpi') return `<article class="kpi-card"><div class="kpi-icon">${card.metric === 'complete' ? '◒' : card.metric === 'rows' ? '▤' : 'Σ'}</div>${renderKpi(card.metric, card.field)}</article>`;
-  if (card.type === 'table') return `<article class="panel dashboard-card card-table"><div class="panel-heading"><div><span class="eyebrow">Tabla</span><h3>${esc(card.title || 'Registros')}</h3></div>${cardActions(card)}</div>${tableHTML(state.filtered, state.columns, 8)}</article>`;
-  return `<article class="panel dashboard-card card-chart"><div class="panel-heading"><div><span class="eyebrow">Visual</span><h3>${esc(card.title || 'Visualización')}</h3></div>${cardActions(card)}</div><div class="chart-wrap">${chartSVG(card.chartType || 'bar', state.filtered, card.xField || state.xField, card.yField || state.yField, card.aggregation || 'sum', card.chartSort || 'original')}</div></article>`;
+  const attrs = `data-card-id="${esc(card.id)}" draggable="true" style="--card-col:${safeSpan(card.colSpan, layoutDefaults(card).colSpan)};--card-row:${safeSpan(card.rowSpan, layoutDefaults(card).rowSpan, 4)}"`;
+  if (card.type === 'kpi') return `<article class="kpi-card dashboard-card" ${attrs}><div class="kpi-icon">${card.metric === 'complete' ? '◒' : card.metric === 'rows' ? '▤' : 'Σ'}</div>${renderKpi(card.metric, card.field)}${cardActions(card)}</article>`;
+  if (card.type === 'table') return `<article class="panel dashboard-card card-table" ${attrs}><div class="panel-heading"><div><span class="eyebrow">Tabla</span><h3>${esc(card.title || 'Registros')}</h3></div>${cardActions(card)}</div>${tableHTML(state.filtered, state.columns, 8)}</article>`;
+  return `<article class="panel dashboard-card card-chart" ${attrs}><div class="panel-heading"><div><span class="eyebrow">Visual</span><h3>${esc(card.title || 'Visualización')}</h3></div>${cardActions(card)}</div><div class="chart-wrap">${chartSVG(card.chartType || 'bar', state.filtered, card.xField || state.xField, card.yField || state.yField, card.aggregation || 'sum', card.chartSort || 'original')}</div></article>`;
 }
 
 function renderOverview() {
   const cards = state.dashboard.cards.length ? state.dashboard.cards : defaultDashboard().cards;
   if (!state.dashboard.cards.length) state.dashboard.cards = cards;
-  return `<div class="overview-toolbar"><div><span class="result-count">${format(state.filtered.length, 0)} filas visibles</span><span class="source-line">Fuente: ${esc(state.sourceDetail)}</span></div><div class="toolbar-actions"><button class="button button-ghost" data-tab="prepare">Editar filtros</button><button class="button button-ghost" data-action="reset-filters">Restablecer filtros</button><button class="button button-soft" data-action="add-table">＋ Tabla</button><button class="button button-soft" data-action="reset-dashboard">Restablecer dashboard</button></div></div><div class="dashboard-grid">${cards.map(cardHTML).join('')}</div>`;
+  return `<div class="overview-toolbar"><div><span class="result-count">${format(state.filtered.length, 0)} filas visibles</span><span class="source-line">Fuente: ${esc(state.sourceDetail)}</span></div><div class="toolbar-actions"><button class="button button-ghost" data-tab="prepare">Editar filtros</button><button class="button button-ghost" data-action="reset-filters">Restablecer filtros</button><button class="button button-soft" data-action="add-table">＋ Tabla</button><button class="button button-soft" data-action="auto-dashboard">✦ Autodashboard</button><button class="button button-soft" data-action="auto-layout">▦ Autoorganizar</button><button class="button button-soft" data-action="reset-dashboard">Restablecer dashboard</button></div></div><div class="dashboard-hint">Arrastra las cajas para cambiar su posición. Usa los controles de cada tarjeta para ajustar ancho, alto o configuración.</div><div class="dashboard-grid">${cards.map(cardHTML).join('')}</div>`;
 }
 
 function renderFilters() {
@@ -312,7 +347,7 @@ async function askLocalModel(request = '', mode = 'analysis') {
   }
   const profile = compactDataProfile();
   const prompt = mode === 'plan'
-    ? `Actúa como un planificador de operaciones de datos. Devuelve SOLO un objeto JSON válido, sin markdown ni explicación. Elige una sola acción: chart o treatment. Para chart usa exactamente este esquema: {"action":"chart","chartType":"bar|line|area|donut|scatter|histogram|boxplot|map|bubble-map|density-map|heatmap","xField":"nombre exacto","yField":"nombre exacto","aggregation":"sum|avg|count","chartSort":"original|value-desc|value-asc","title":"título breve"}. Para treatment usa: {"action":"treatment","command":"orden breve en español"}. Solo puedes usar nombres de campos que aparezcan en el perfil. No inventes campos, coordenadas ni valores. La orden treatment debe ser una de estas operaciones: eliminar duplicados, eliminar filas vacías, rellenar faltantes, limpiar espacios o normalizar un campo numérico. Petición: ${request || 'elige un análisis útil'}. Perfil: ${JSON.stringify(profile)}`
+    ? `Actúa como un planificador de operaciones de datos. Devuelve SOLO un objeto JSON válido, sin markdown ni explicación. Elige una sola acción: chart o treatment. Para chart usa exactamente este esquema: {"action":"chart","chartType":"bar|line|area|donut|scatter|histogram|boxplot|map|bubble-map|density-map|heatmap|funnel|waterfall|radar|treemap","xField":"nombre exacto","yField":"nombre exacto","aggregation":"sum|avg|count","chartSort":"original|value-desc|value-asc","title":"título breve"}. Para treatment usa: {"action":"treatment","command":"orden breve en español"}. Solo puedes usar nombres de campos que aparezcan en el perfil. No inventes campos, coordenadas ni valores. La orden treatment debe ser una de estas operaciones: eliminar duplicados, eliminar filas vacías, rellenar faltantes, limpiar espacios o normalizar un campo numérico. Petición: ${request || 'elige un análisis útil'}. Perfil: ${JSON.stringify(profile)}`
     : `Actúa como analista de datos. Responde en español, con prudencia y sin inventar. Analiza este perfil local y propone hasta cinco acciones concretas de limpieza, métricas o visualizaciones. Si el usuario ha pedido una operación, explica cómo ejecutarla con los campos disponibles y no inventes columnas. Si hay coordenadas, recomienda un mapa apropiado. No afirmes causalidad. Petición del usuario: ${request || 'sin petición adicional'}. Perfil: ${JSON.stringify(profile)}`;
   const answer = await state.aiSession.prompt(prompt);
   setAIStatus('Gemini Nano listo', 'ready');
@@ -371,7 +406,11 @@ function buildAssistantPlan(command) {
   let xField = dimension;
   let yField = metric || state.yField;
   let aggregation = 'sum';
-  if (/calor|heatmap|bivariad/.test(normalized) && numeric.length >= 2) { chartType = 'heatmap'; xField = matches.find(column => column.type === 'number')?.name || numeric[0].name; yField = matches.filter(column => column.type === 'number')[1]?.name || numeric[1].name; aggregation = 'count'; }
+  if (/embudo|funnel/.test(normalized)) chartType = 'funnel';
+  else if (/cascada|waterfall|puente/.test(normalized)) chartType = 'waterfall';
+  else if (/radar|araña/.test(normalized)) chartType = 'radar';
+  else if (/treemap|árbol|rectángulo/.test(normalized)) chartType = 'treemap';
+  else if (/calor|heatmap|bivariad/.test(normalized) && numeric.length >= 2) { chartType = 'heatmap'; xField = matches.find(column => column.type === 'number')?.name || numeric[0].name; yField = matches.filter(column => column.type === 'number')[1]?.name || numeric[1].name; aggregation = 'count'; }
   else if (/mapa|espacial|geogr[aá]fic|ubicaci[oó]n/.test(normalized) && geo.longitude && geo.latitude) { chartType = /densidad|concentraci[oó]n|cuadr[ií]cula/.test(normalized) ? 'density-map' : 'map'; xField = geo.longitude; yField = geo.latitude; aggregation = 'count'; }
   else if (/dispersi[oó]n|correlaci[oó]n|relaci[oó]n/.test(normalized) && numeric.length >= 2) { chartType = 'scatter'; xField = matches.find(column => column.type === 'number')?.name || numeric[0].name; yField = matches.filter(column => column.type === 'number')[1]?.name || numeric[1].name; }
   else if (/histograma|distribuci[oó]n/.test(normalized)) { chartType = 'histogram'; xField = dimension; yField = matches.find(column => column.type === 'number')?.name || metric; }
@@ -771,6 +810,62 @@ function updateFilter(input) {
   renderAll();
 }
 
+function moveCard(cardId, delta) {
+  const cards = state.dashboard.cards;
+  const from = cards.findIndex(card => card.id === cardId);
+  const to = Math.min(cards.length - 1, Math.max(0, from + Number(delta)));
+  if (from < 0 || from === to) return;
+  const [card] = cards.splice(from, 1);
+  cards.splice(to, 0, card);
+  renderAll();
+}
+
+function resizeCard(cardId, axis, delta) {
+  const card = state.dashboard.cards.find(item => item.id === cardId);
+  if (!card) return;
+  const defaults = layoutDefaults(card);
+  if (axis === 'col') card.colSpan = safeSpan((card.colSpan || defaults.colSpan) + Number(delta), defaults.colSpan);
+  if (axis === 'row') card.rowSpan = safeSpan((card.rowSpan || defaults.rowSpan) + Number(delta), defaults.rowSpan, 4);
+  renderAll();
+}
+
+function autoOrganizeDashboard() {
+  const cards = state.dashboard.cards.length ? state.dashboard.cards : defaultDashboard().cards;
+  cards.sort((left, right) => cardSortRank(left) - cardSortRank(right));
+  state.dashboard.cards = autoLayoutCards(cards);
+  renderAll();
+  announce('Dashboard autoorganizado y adaptado al tamaño actual de la pantalla.');
+}
+
+function selectOptions(values, selected) {
+  return values.map(value => '<option value="' + esc(value) + '"' + (value === selected ? ' selected' : '') + '>' + esc(value) + '</option>').join('');
+}
+
+function showCardEditor(card) {
+  if (!card || card.type !== 'chart') return;
+  document.querySelector('#card-editor-modal')?.remove();
+  const fields = state.columns.map(column => column.name);
+  const chartOptions = Object.entries(CHART_LABELS).map(([value, label]) => '<option value="' + esc(value) + '"' + (value === card.chartType ? ' selected' : '') + '>' + esc(label) + '</option>').join('');
+  const markup = '<div id="card-editor-modal" class="modal-backdrop"><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="card-editor-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Personalizar visual</span><h2 id="card-editor-title">' + esc(card.title || 'Visualización') + '</h2></div><button class="remove-card" data-modal-action="close-card-editor" aria-label="Cerrar ventana">×</button></div><div class="editor-grid"><label>Título<input id="card-editor-name" type="text" maxlength="100" value="' + esc(card.title || '') + '"></label><label>Tipo<select id="card-editor-type">' + chartOptions + '</select></label><label>Dimensión / X<select id="card-editor-x">' + selectOptions(fields, card.xField) + '</select></label><label>Métrica / Y<select id="card-editor-y">' + selectOptions(fields, card.yField) + '</select></label><label>Agregación<select id="card-editor-aggregation">' + selectOptions(AGGREGATIONS, card.aggregation) + '</select></label><label>Orden<select id="card-editor-sort">' + selectOptions(SORT_MODES, card.chartSort) + '</select></label></div><p class="helper">Los mapas necesitan longitud y latitud; la dispersión, el calor y el radar necesitan campos numéricos compatibles. La tarjeta seguirá siendo local y exportable.</p><div class="modal-actions"><button class="button button-ghost" data-modal-action="close-card-editor">Cancelar</button><button class="button button-primary" data-modal-action="save-card-editor">Guardar visual</button></div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', markup);
+  const modal = document.querySelector('#card-editor-modal');
+  const close = () => modal?.remove();
+  modal.addEventListener('click', event => { if (event.target === modal || event.target.closest('[data-modal-action="close-card-editor"]')) close(); });
+  modal.querySelector('[data-modal-action="save-card-editor"]').addEventListener('click', () => {
+    card.title = modal.querySelector('#card-editor-name').value.trim() || 'Visualización';
+    card.chartType = CHART_TYPES.includes(modal.querySelector('#card-editor-type').value) ? modal.querySelector('#card-editor-type').value : 'bar';
+    card.xField = hasColumn(modal.querySelector('#card-editor-x').value) ? modal.querySelector('#card-editor-x').value : state.xField;
+    card.yField = hasColumn(modal.querySelector('#card-editor-y').value) ? modal.querySelector('#card-editor-y').value : state.yField;
+    card.aggregation = AGGREGATIONS.includes(modal.querySelector('#card-editor-aggregation').value) ? modal.querySelector('#card-editor-aggregation').value : 'count';
+    card.chartSort = SORT_MODES.includes(modal.querySelector('#card-editor-sort').value) ? modal.querySelector('#card-editor-sort').value : 'original';
+    state.dashboard = sanitizeDashboard(state.dashboard);
+    close();
+    renderAll();
+    announce('Visual personalizada y guardada en el dashboard.');
+  });
+  modal.focus();
+}
+
 function bind() {
   const app = document.querySelector('.app-shell');
   let filterInputTimer = 0;
@@ -784,6 +879,11 @@ function bind() {
     const action = actionNode.dataset.action;
     if (action === 'assistant') { showAssistantModal(); return; }
     if (action === 'undo-transform') { undoLastTransformation(); return; }
+    if (action === 'auto-dashboard') { state.dashboard = defaultDashboard(); state.activeTab = 'overview'; renderAll(); announce('Autodashboard compuesto según las dimensiones y métricas detectadas.'); return; }
+    if (action === 'auto-layout') { autoOrganizeDashboard(); return; }
+    if (action === 'move-card') { moveCard(actionNode.dataset.id, actionNode.dataset.delta); return; }
+    if (action === 'resize-card') { resizeCard(actionNode.dataset.id, actionNode.dataset.axis, actionNode.dataset.delta); return; }
+    if (action === 'configure-card') { showCardEditor(state.dashboard.cards.find(card => card.id === actionNode.dataset.id)); return; }
     if (action === 'add-chart') {
       state.dashboard.cards.push({ id: 'chart-' + Date.now(), type: 'chart', title: state.chartTitle?.trim() || state.yField + ' por ' + state.xField, chartType: state.chartType, xField: state.xField, yField: state.yField, aggregation: state.aggregation, chartSort: state.chartSort });
       announce('Visual añadido al dashboard.');
@@ -805,7 +905,7 @@ function bind() {
     if (action === 'add-calculated') addCalculatedField();
     if (action === 'apply-search') { state.search = document.querySelector('#search-input')?.value || ''; renderAll(); }
     if (action === 'add-table') { state.dashboard.cards.push({ id: `table-${Date.now()}`, type: 'table', title: 'Nueva tabla' }); announce('Tabla añadida al dashboard.'); renderAll(); }
-    if (action === 'edit-card') { const card = state.dashboard.cards.find(item => item.id === actionNode.dataset.id); if (card) { const title = window.prompt('Título de la tarjeta:', card.title || 'Visualización'); if (title?.trim()) { card.title = title.trim(); renderAll(); } } }
+    if (action === 'edit-card' || action === 'rename-card') { const card = state.dashboard.cards.find(item => item.id === actionNode.dataset.id); if (card) { const title = window.prompt('Título de la tarjeta:', card.title || 'Visualización'); if (title?.trim()) { card.title = title.trim(); renderAll(); } } }
     if (action === 'duplicate-card') { const card = state.dashboard.cards.find(item => item.id === actionNode.dataset.id); if (card) { state.dashboard.cards.push({ ...card, id: `${card.type}-${Date.now()}`, title: `${card.title || 'Tarjeta'} (copia)` }); announce('Tarjeta duplicada.'); renderAll(); } }
     if (action === 'remove-card') { state.dashboard.cards = state.dashboard.cards.filter(card => card.id !== actionNode.dataset.id); renderAll(); }
     if (action === 'clear-alert') { const alert = document.querySelector('#app-alert'); if (alert) alert.innerHTML = ''; }
@@ -829,6 +929,10 @@ function bind() {
     filterInputTimer = window.setTimeout(() => updateFilter(input), 250);
   });
   app.addEventListener('keydown', event => { if (event.key === 'Enter' && event.target.id === 'search-input') { state.search = event.target.value; renderAll(); } });
+  app.addEventListener('dragstart', event => { const card = event.target.closest('[data-card-id]'); if (!card) return; app.dataset.dragCard = card.dataset.cardId; card.classList.add('is-dragging'); event.dataTransfer?.setData('text/plain', card.dataset.cardId); });
+  app.addEventListener('dragend', event => { event.target.closest('[data-card-id]')?.classList.remove('is-dragging'); delete app.dataset.dragCard; });
+  app.addEventListener('dragover', event => { if (event.target.closest('[data-card-id]')) event.preventDefault(); });
+  app.addEventListener('drop', event => { const target = event.target.closest('[data-card-id]'); const sourceId = app.dataset.dragCard || event.dataTransfer?.getData('text/plain'); if (!target || !sourceId || target.dataset.cardId === sourceId) return; event.preventDefault(); const cards = state.dashboard.cards; const from = cards.findIndex(card => card.id === sourceId); const to = cards.findIndex(card => card.id === target.dataset.cardId); if (from < 0 || to < 0) return; const [card] = cards.splice(from, 1); cards.splice(to, 0, card); delete app.dataset.dragCard; renderAll(); announce('Tarjeta recolocada.'); });
 }
 
 init();

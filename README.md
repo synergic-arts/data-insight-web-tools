@@ -4,7 +4,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 
 ## Incluye
 
-- **Dashboard Studio**: KPIs, tablas y visualizaciones de barras, líneas, áreas, anillos, dispersión, histogramas, cajas, mapas de puntos, mapas de burbujas, densidad por cuadrícula WGS84 y mapas de calor bivariados.
+- **Dashboard Studio**: KPIs, tablas y 15 familias de visualización: barras, líneas, áreas, anillos, dispersión, histogramas, cajas, mapas de puntos, mapas de burbujas, densidad por cuadrícula WGS84, calor bivariado, embudo, cascada, radar y treemap.
 - **Data Profiler**: vacíos, duplicados exactos, tipos, cardinalidad, media, mediana, rangos y cobertura por campo.
 - **Transform Lab**: filtros combinados, búsqueda, campos calculados aritméticos y exportación.
 - **Pivot Lab**: agrupaciones y agregaciones locales por categoría, comparación visual y exportación del resumen.
@@ -13,6 +13,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Ordenación de tablas, paginación progresiva, chips de filtros, reinicio de vistas y duplicación/renombrado de tarjetas.
 - Filtros de rango numérico y búsqueda por contenido en todos los campos, con actualización mientras se escribe.
 - Visuales con título, orden por valor y configuración persistida; exportación CSV o JSON de la población visible con filtros y procedencia.
+- Dashboard responsive de 12 columnas: tarjetas arrastrables, movimiento arriba/abajo, ajuste de ancho y alto, edición por tarjeta, autoorganización adaptada a escritorio/tableta/móvil y modo Autodashboard según el esquema detectado.
 - Escalas firmadas para gráficos de barras y líneas, con línea cero y tooltips accesibles para valores negativos y positivos.
 - Recuento automático por categoría cuando el conjunto no contiene métricas numéricas; el anillo rechaza valores negativos o sin total interpretable.
 - Detección de coordenadas por alias habituales (`lat`, `latitude`, `latitud`, `lon`, `lng`, `longitude`, `longitud`, `x`, `y`), mapas de puntos con tooltips por registro y burbujas agregadas por coordenadas coincidentes; el mapa no inventa una cartografía base cuando solo hay coordenadas.
@@ -20,7 +21,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Exportación SVG de la visualización activa para conservar escala vectorial, etiquetas y tooltips del gráfico en un archivo portable.
 - Panel automático enriquecido: añade suma, media, completitud, distribución, evolución temporal, relación entre métricas, puntos espaciales, densidad y tabla cuando el esquema contiene los campos necesarios.
 - Resumen analítico local con campos incompletos, rangos, valores atípicos IQR, variación temporal, correlación descriptiva y recomendaciones de visualización; no afirma causalidad.
-- Órdenes de dashboard en lenguaje natural sin servidor: reconoce peticiones de mapas, calor bivariado, dispersión, histogramas, cajas, anillos, líneas y áreas, valida los campos disponibles y añade la visual resultante al panel.
+- Órdenes de dashboard en lenguaje natural sin servidor: reconoce peticiones de mapas, calor bivariado, dispersión, histogramas, cajas, anillos, líneas, áreas, embudos, cascadas, radar y treemap; valida los campos disponibles y añade la visual resultante al panel.
 - Órdenes locales de tratamiento en lenguaje natural: elimina duplicados, quita filas vacías, rellena faltantes con media/moda o un valor indicado, limpia espacios y crea campos normalizados min–max; cada cambio queda en un historial reversible con `Deshacer`.
 - Asistente local con resumen determinista, panel recomendado y compatibilidad opcional con Gemini Nano mediante la Prompt API de Chrome. La IA solo se inicia tras una acción explícita y no sustituye la validación de unidades, proyección ni semántica.
 - Gemini Nano puede devolver un plan JSON validado contra el esquema real y aplicar una visualización o tratamiento permitido; el plan no puede inventar campos y los tratamientos siguen pasando por la ruta local reversible.

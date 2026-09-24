@@ -265,6 +265,67 @@ function heatmapChart(rows, xField, yField) {
   return chartFrame(`<g class="map-grid">${marks}</g><text class="chart-axis-title" x="62" y="20">Mapa de calor bivariado · recuento por celda</text><text class="chart-axis-label" x="74" y="296">${format(minX, 2)}</text><text class="chart-axis-label" x="774" y="296" text-anchor="end">${format(maxX, 2)}</text><text class="chart-axis-label" x="58" y="40" text-anchor="end">${format(maxY, 2)}</text><text class="chart-axis-label" x="58" y="274" text-anchor="end">${format(minY, 2)}</text>`, `${xField} y ${yField} · mapa de calor`);
 }
 
+function funnelChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, ordering).filter(item => item.value >= 0).slice(0, 8);
+  if (!groups.length) return emptyChart('El embudo necesita valores no negativos');
+  const max = Math.max(...groups.map(item => item.value), 1);
+  const marks = groups.map((item, index) => {
+    const width = Math.max(42, 650 * item.value / max);
+    const x = 420 - width / 2;
+    const y = 42 + index * 38;
+    return '<g><title>' + esc(item.label) + ': ' + format(item.value, 1) + '</title><path d="M ' + x.toFixed(1) + ' ' + y + ' L ' + (x + width).toFixed(1) + ' ' + y + ' L ' + (x + width * .88).toFixed(1) + ' ' + (y + 29) + ' L ' + (x + width * .12).toFixed(1) + ' ' + (y + 29) + ' Z" fill="' + COLORS[index % COLORS.length] + '" opacity=".9"/><text x="420" y="' + (y + 19) + '" text-anchor="middle">' + axisLabel(item.label) + ' · ' + format(item.value, 0) + '</text></g>';
+  }).join('');
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">Embudo por ' + esc(xField) + '</text>' + marks, 'Embudo');
+}
+
+function waterfallChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, ordering).slice(0, 12);
+  if (!groups.length) return emptyChart();
+  let running = 0;
+  const steps = groups.map(item => { const start = running; running += item.value; return { ...item, start, end: running }; });
+  const extent = steps.flatMap(item => [item.start, item.end]);
+  const min = Math.min(0, ...extent);
+  const max = Math.max(0, ...extent);
+  const span = max - min || 1;
+  const y = value => 274 - ((value - min) / span) * 220;
+  const baseline = y(0);
+  const slot = 700 / steps.length;
+  const marks = steps.map((item, index) => {
+    const top = Math.min(y(item.start), y(item.end));
+    const height = Math.max(2, Math.abs(y(item.start) - y(item.end)));
+    const x = 74 + index * slot + slot * .14;
+    const width = slot * .72;
+    const color = item.value >= 0 ? '#70e1bb' : '#fb7185';
+    return '<g><title>' + esc(item.label) + ': ' + format(item.value, 1) + ' · acumulado ' + format(item.end, 1) + '</title><rect x="' + x.toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + width.toFixed(1) + '" height="' + height.toFixed(1) + '" rx="6" fill="' + color + '"/><text class="chart-axis-label" x="' + (x + width / 2).toFixed(1) + '" y="296" text-anchor="middle">' + axisLabel(item.label) + '</text></g>';
+  }).join('');
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">Cascada · ' + esc(yField) + '</text><line class="chart-zero" x1="62" y1="' + baseline.toFixed(1) + '" x2="790" y2="' + baseline.toFixed(1) + '"/>' + marks, 'Cascada');
+}
+
+function radarChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, ordering).filter(item => item.value >= 0).slice(0, 8);
+  if (!groups.length) return emptyChart();
+  const max = Math.max(...groups.map(item => item.value), 1);
+  const cx = 400; const cy = 150; const radius = 105;
+  const point = (index, value) => { const angle = -Math.PI / 2 + index * Math.PI * 2 / groups.length; const distance = radius * value / max; return [cx + Math.cos(angle) * distance, cy + Math.sin(angle) * distance]; };
+  const grid = [0.33, 0.66, 1].map(level => { const points = groups.map((_, index) => { const p = point(index, max * level); return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' '); return '<polygon points="' + points + '" fill="none" stroke="#33506c" stroke-width="1"/>'; }).join('');
+  const axes = groups.map((item, index) => { const edge = point(index, max); const label = point(index, max * 1.16); return '<line x1="' + cx + '" y1="' + cy + '" x2="' + edge[0].toFixed(1) + '" y2="' + edge[1].toFixed(1) + '" stroke="#33506c"/><text class="chart-axis-label" x="' + label[0].toFixed(1) + '" y="' + label[1].toFixed(1) + '" text-anchor="middle">' + axisLabel(item.label) + '</text>'; }).join('');
+  const values = groups.map((item, index) => { const p = point(index, item.value); return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">Radar · ' + esc(yField) + '</text>' + grid + axes + '<polygon points="' + values + '" fill="#70e1bb44" stroke="#70e1bb" stroke-width="3"/><circle cx="' + cx + '" cy="' + cy + '" r="4" fill="#70e1bb"/>', 'Radar');
+}
+
+function treemapChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, ordering).filter(item => item.value >= 0).slice(0, 18);
+  const total = groups.reduce((sum, item) => sum + item.value, 0);
+  if (!groups.length || total <= 0) return emptyChart('El treemap necesita un total positivo');
+  let cursor = 74;
+  const marks = groups.map((item, index) => {
+    const width = Math.max(3, 700 * item.value / total);
+    const x = cursor; cursor += width;
+    return '<g><title>' + esc(item.label) + ': ' + format(item.value, 1) + '</title><rect x="' + x.toFixed(1) + '" y="54" width="' + Math.max(2, width - 2).toFixed(1) + '" height="190" rx="6" fill="' + COLORS[index % COLORS.length] + '"/>' + (width > 45 ? '<text x="' + (x + width / 2).toFixed(1) + '" y="150" text-anchor="middle">' + axisLabel(item.label) + '</text><text class="chart-axis-label" x="' + (x + width / 2).toFixed(1) + '" y="170" text-anchor="middle">' + format(item.value, 0) + '</text>' : '') + '</g>';
+  }).join('');
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">Treemap · ' + esc(yField) + '</text>' + marks, 'Treemap');
+}
+
 export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original') {
   if (type === 'line') return signedLineChart(rows, xField, yField, aggregation, ordering);
   if (type === 'area') return areaChart(rows, xField, yField, aggregation, ordering);
@@ -276,6 +337,10 @@ export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'or
   if (type === 'bubble-map') return mapChart(rows, xField, yField, true);
   if (type === 'density-map') return densityMapChart(rows, xField, yField);
   if (type === 'heatmap') return heatmapChart(rows, xField, yField);
+  if (type === 'funnel') return funnelChart(rows, xField, yField, aggregation, ordering);
+  if (type === 'waterfall') return waterfallChart(rows, xField, yField, aggregation, ordering);
+  if (type === 'radar') return radarChart(rows, xField, yField, aggregation, ordering);
+  if (type === 'treemap') return treemapChart(rows, xField, yField, aggregation, ordering);
   return signedBarChart(rows, xField, yField, aggregation, ordering);
 }
 
