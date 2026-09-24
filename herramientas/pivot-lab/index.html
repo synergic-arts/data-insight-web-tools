@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1220">
+  <meta name="description" content="Tabla dinámica local para agrupar, resumir y exportar datos en el navegador.">
+  <title>Pivot Lab · Data Insight Web Tools</title>
+  <link rel="manifest" href="../../manifest.webmanifest">
+  <link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../../shared/styles.css?v=20260924-6">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="pivot-shell">
+    <a class="back" href="../../">← Data Insight Web Tools</a>
+    <header class="hero">
+      <p class="eyebrow">PIVOT LAB · CLIENTE · LOCAL</p>
+      <h1>Tabla dinámica sin servidor.</h1>
+      <p class="lede">Agrupa una tabla por cualquier campo, calcula sumas, medias, recuentos, mínimos o máximos y exporta una vista analítica lista para compartir.</p>
+    </header>
+
+    <section class="panel" aria-labelledby="input-title">
+      <div class="section-heading"><div><p class="eyebrow">01 · FUENTE</p><h2 id="input-title">Carga o prueba datos</h2></div><span class="badge">sin subida de archivos</span></div>
+      <div class="control-grid">
+        <label class="file-control">Abrir CSV, TSV, JSON o GeoJSON
+          <input id="fileInput" type="file" accept=".csv,.tsv,.json,.geojson,text/csv,application/json,application/geo+json">
+          <span id="fileName">Muestra arqueológica local</span>
+        </label>
+        <label>Filtrar filas
+          <input id="search" type="search" placeholder="Texto en cualquier campo" autocomplete="off">
+        </label>
+        <label>Mostrar grupos
+          <select id="topN"><option value="10">10</option><option value="20" selected>20</option><option value="50">50</option><option value="100">100</option><option value="all">Todos</option></select>
+        </label>
+      </div>
+      <div class="button-row"><button id="exampleBtn" class="button-soft">Cargar ejemplo</button><button id="clearBtn" class="button-ghost">Limpiar</button><button id="runBtn" class="button-primary">Actualizar tabla</button></div>
+      <p id="status" class="status" role="status">16 filas sintéticas listas para explorar.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="config-title">
+      <div class="section-heading"><div><p class="eyebrow">02 · CONFIGURACIÓN</p><h2 id="config-title">Define la agregación</h2></div><span id="rowHint" class="badge">—</span></div>
+      <div class="config-grid">
+        <label>Agrupar por
+          <select id="dimension"></select>
+        </label>
+        <label>Medida
+          <select id="measure"></select>
+        </label>
+        <label>Agregación
+          <select id="aggregation"><option value="sum">Suma</option><option value="average">Media</option><option value="count">Recuento</option><option value="min">Mínimo</option><option value="max">Máximo</option></select>
+        </label>
+      </div>
+      <p class="note">Los grupos se calculan sobre las filas que pasan el filtro de texto. «Recuento» no necesita una medida numérica.</p>
+    </section>
+
+    <section id="result" class="panel" aria-labelledby="result-title">
+      <div class="section-heading"><div><p class="eyebrow">03 · RESULTADO</p><h2 id="result-title">Resumen por grupo</h2></div><span id="resultHint" class="badge">—</span></div>
+      <div class="metrics"><div class="metric"><span>Filas visibles</span><strong id="visibleCount">—</strong></div><div class="metric"><span>Grupos</span><strong id="groupCount">—</strong></div><div class="metric"><span>Valor total</span><strong id="totalValue">—</strong></div><div class="metric"><span>Grupo principal</span><strong id="topGroup">—</strong></div></div>
+      <div class="result-grid">
+        <article class="subpanel"><div class="subheading"><h3>Comparación</h3><span>escala relativa</span></div><div id="bars" class="bars" role="list" aria-label="Gráfico de barras de la agregación"></div></article>
+        <article class="subpanel table-wrap"><table><thead><tr><th>Grupo</th><th>Filas</th><th id="valueHead">Valor</th><th>% total</th></tr></thead><tbody id="tableBody"><tr><td colspan="4" class="empty">No hay resultados.</td></tr></tbody></table></article>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="export-title">
+      <div class="section-heading"><div><p class="eyebrow">04 · SALIDA</p><h2 id="export-title">Exporta la vista</h2></div></div>
+      <div class="button-row"><button id="csvBtn" class="button-primary">Descargar resumen CSV</button><button id="jsonBtn" class="button-ghost">Descargar configuración JSON</button></div>
+      <p class="privacy">Todo se procesa en este navegador y no se envía a un servidor. Los datos de ejemplo son sintéticos. Si importas un archivo, su nombre se conserva solo como procedencia de la sesión.</p>
+    </section>
+  </main>
+  <script type="module" src="app.js"></script>
+  <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('../../sw.js').catch(()=>{});</script>
+</body>
+</html>

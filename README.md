@@ -7,6 +7,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - **Dashboard Studio**: KPIs, tablas y gráficos de barras, líneas, anillo, dispersión e histogramas.
 - **Data Profiler**: vacíos, duplicados exactos, tipos, cardinalidad, media, mediana, rangos y cobertura por campo.
 - **Transform Lab**: filtros combinados, búsqueda, campos calculados aritméticos y exportación.
+- **Pivot Lab**: agrupaciones y agregaciones locales por categoría, comparación visual y exportación del resumen.
 - Entrada local de CSV, TSV, JSON, GeoJSON y datos pegados.
 - Guardado y reapertura de proyectos `.data-insight.json`.
 - Ordenación de tablas, paginación progresiva, chips de filtros, reinicio de vistas y duplicación/renombrado de tarjetas.
