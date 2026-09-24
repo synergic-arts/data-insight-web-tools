@@ -2,6 +2,7 @@ import { DEMO_ROWS, state, esc, format, toNumber, isMissing, parseAny, loadRows,
 import { chartSVG, tableHTML } from './charts.js';
 
 const root = document.body;
+const transformationHistory = [];
 const mode = root.dataset.mode || 'dashboard';
 const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'analyze' : 'overview';
 const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
@@ -74,7 +75,7 @@ function defaultDashboard() {
 
 function shellMarkup() {
   root.innerHTML = `<div class="app-shell">
-    <header class="appbar"><a class="brand" href="../" aria-label="Data Insight Web Tools"><span class="brand-mark">DI</span><span><strong>Data Insight</strong><small>local analytics studio</small></span></a><div class="appbar-actions"><button class="button button-soft" data-action="assistant">✦ Asistente local</button><button class="icon-button" data-action="fullscreen" title="Pantalla completa" aria-label="Pantalla completa">⛶</button><button class="button button-ghost" data-action="save">Guardar proyecto</button><button class="button button-ghost" data-action="export-json">Exportar JSON</button><button class="button button-primary" data-action="export">Exportar CSV</button></div></header>
+    <header class="appbar"><a class="brand" href="../" aria-label="Data Insight Web Tools"><span class="brand-mark">DI</span><span><strong>Data Insight</strong><small>local analytics studio</small></span></a><div class="appbar-actions"><button class="button button-soft" data-action="assistant">✦ Asistente local</button><button class="button button-ghost" data-action="undo-transform" disabled>↶ Deshacer</button><button class="icon-button" data-action="fullscreen" title="Pantalla completa" aria-label="Pantalla completa">⛶</button><button class="button button-ghost" data-action="save">Guardar proyecto</button><button class="button button-ghost" data-action="export-json">Exportar JSON</button><button class="button button-primary" data-action="export">Exportar CSV</button></div></header>
     <div class="app-layout">
       <aside class="sidebar"><div class="sidebar-heading"><span class="eyebrow">Espacio de trabajo</span><h2>Explora tus datos</h2></div><div class="dataset-card"><span class="status-dot"></span><strong id="dataset-name">Cargando…</strong><small id="dataset-meta"></small><span id="dataset-kind" class="badge"></span></div>
         <nav class="side-nav" aria-label="Secciones"><button data-tab="overview">▦ <span>Dashboard</span></button><button data-tab="prepare">⌘ <span>Preparar datos</span></button><button data-tab="analyze">◒ <span>Analizar</span></button><button data-tab="quality">✓ <span>Calidad</span></button></nav>
@@ -103,6 +104,8 @@ function renderMeta() {
   if (name) name.textContent = state.datasetName;
   if (meta) meta.textContent = `${format(state.rows.length, 0)} filas · ${format(state.columns.length, 0)} campos · ${numeric} numéricos`;
   if (kind) { kind.textContent = state.sourceKind === 'synthetic' ? 'Muestra local' : state.sourceKind === 'pasted' ? 'Pegado local' : 'Archivo local'; kind.className = `badge badge-${state.sourceKind}`; }
+  const undo = document.querySelector('[data-action="undo-transform"]');
+  if (undo) undo.disabled = transformationHistory.length === 0;
 }
 
 function renderAll() {
@@ -337,7 +340,168 @@ function buildAssistantPlan(command) {
   return { chartType, xField, yField, aggregation, chartSort: /ranking|mayor|orden/.test(normalized) ? 'value-desc' : 'original', title };
 }
 
+function cloneRows(rows) {
+  return rows.map(row => ({ ...row }));
+}
+
+function rememberTransformation(label) {
+  transformationHistory.push({
+    label,
+    rows: cloneRows(state.rows),
+    meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail },
+    filters: JSON.parse(JSON.stringify(state.filters)),
+    search: state.search,
+    activeTab: state.activeTab,
+    xField: state.xField,
+    yField: state.yField,
+    chartType: state.chartType,
+    chartSort: state.chartSort,
+    chartTitle: state.chartTitle,
+    aggregation: state.aggregation,
+    dashboard: JSON.parse(JSON.stringify(state.dashboard))
+  });
+  if (transformationHistory.length > 5) transformationHistory.shift();
+}
+
+function restoreTransformation(snapshot) {
+  loadRows(snapshot.rows, snapshot.meta);
+  state.filters = sanitizeFilters(snapshot.filters);
+  state.search = typeof snapshot.search === 'string' ? snapshot.search : '';
+  state.xField = safeField(snapshot.xField, state.xField);
+  state.yField = safeField(snapshot.yField, state.yField, 'number');
+  state.chartType = CHART_TYPES.includes(snapshot.chartType) ? snapshot.chartType : 'bar';
+  state.chartSort = SORT_MODES.includes(snapshot.chartSort) ? snapshot.chartSort : 'original';
+  state.chartTitle = typeof snapshot.chartTitle === 'string' && snapshot.chartTitle.trim() ? snapshot.chartTitle : 'Visualización principal';
+  state.aggregation = AGGREGATIONS.includes(snapshot.aggregation) ? snapshot.aggregation : 'sum';
+  state.dashboard = sanitizeDashboard(snapshot.dashboard);
+  state.activeTab = safeTab(snapshot.activeTab);
+  applyFilters();
+  renderAll();
+}
+
+function undoLastTransformation() {
+  const snapshot = transformationHistory.pop();
+  if (!snapshot) { announce('No hay ninguna transformación local que deshacer.', 'error'); return; }
+  restoreTransformation(snapshot);
+  announce(`Se ha deshecho: ${snapshot.label}.`);
+}
+
+function reloadTransformedRows(rows, detail) {
+  const dashboard = JSON.parse(JSON.stringify(state.dashboard));
+  loadRows(rows, { name: state.datasetName, kind: state.sourceKind, detail: `${state.sourceDetail} ${detail}`.trim() });
+  state.dashboard = sanitizeDashboard(dashboard);
+  state.activeTab = 'overview';
+  renderAll();
+}
+
+function explicitFillValue(command) {
+  const numeric = String(command).match(/\bcon\s+(-?\d+(?:[.,]\d+)?)\b/i);
+  if (numeric) return toNumber(numeric[1]);
+  const text = String(command).match(/\bcon\s+["“']([^"”']+)["”']/i);
+  return text ? text[1].trim() : null;
+}
+
+function modalize(value) {
+  return String(value ?? '').trim().toLocaleLowerCase('es');
+}
+
+function modeValue(rows, field) {
+  const counts = new Map();
+  rows.map(row => row[field]).filter(value => !isMissing(value)).forEach(value => {
+    const key = String(value);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'Desconocido';
+}
+
+function meanValue(rows, field) {
+  const values = rows.map(row => toNumber(row[field])).filter(value => value !== null);
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function applyAssistantDataOperation(command) {
+  const text = String(command || '').trim();
+  const normalized = modalize(text);
+  if (!normalized) return false;
+  const matches = assistantFieldMatches(text);
+
+  if (/duplicad|repetid/.test(normalized)) {
+    const uniqueRows = [];
+    const seen = new Set();
+    state.rows.forEach(row => { const key = JSON.stringify(row); if (!seen.has(key)) { seen.add(key); uniqueRows.push(row); } });
+    if (uniqueRows.length === state.rows.length) { announce('No se han encontrado duplicados exactos.'); return true; }
+    const removed = state.rows.length - uniqueRows.length;
+    rememberTransformation('Eliminar duplicados exactos');
+    reloadTransformedRows(uniqueRows, `Se eliminaron ${format(removed, 0)} duplicados exactos.`);
+    announce(`Se eliminaron ${format(removed, 0)} duplicados exactos.`);
+    return true;
+  }
+
+  if (/(elimina|quita|borra).*(vac[ií]os?|nulos?|faltantes?)/.test(normalized)) {
+    const fields = matches.length ? matches : [];
+    const keptRows = state.rows.filter(row => fields.length ? fields.every(column => !isMissing(row[column.name])) : state.columns.some(column => !isMissing(row[column.name])));
+    if (keptRows.length === state.rows.length) { announce('No se han encontrado filas vacías con los campos indicados.'); return true; }
+    rememberTransformation(fields.length ? `Eliminar filas con vacíos en ${fields.map(column => column.name).join(', ')}` : 'Eliminar filas completamente vacías');
+    const removed = state.rows.length - keptRows.length;
+    reloadTransformedRows(keptRows, `Se eliminaron ${format(removed, 0)} filas con valores faltantes.`);
+    announce(`Se eliminaron ${format(removed, 0)} filas con valores faltantes.`);
+    return true;
+  }
+
+  if (/(rellena|imputa|completa).*(vac[ií]os?|nulos?|faltantes?)/.test(normalized)) {
+    const fields = matches.length ? matches : state.columns;
+    const explicit = explicitFillValue(text);
+    const nextRows = state.rows.map(row => {
+      const next = { ...row };
+      fields.forEach(column => {
+        if (!isMissing(next[column.name])) return;
+        next[column.name] = explicit !== null ? explicit : column.type === 'number' ? meanValue(state.rows, column.name) : modeValue(state.rows, column.name);
+      });
+      return next;
+    });
+    const changed = nextRows.some((row, index) => JSON.stringify(row) !== JSON.stringify(state.rows[index]));
+    if (!changed) { announce('No se han encontrado valores faltantes que rellenar.'); return true; }
+    rememberTransformation(fields.length ? `Rellenar vacíos en ${fields.map(column => column.name).join(', ')}` : 'Rellenar valores faltantes');
+    reloadTransformedRows(nextRows, 'Valores faltantes rellenados con media, moda o valor indicado.');
+    announce('Valores faltantes rellenados localmente.');
+    return true;
+  }
+
+  if (/(limpia.*espacios|quita.*espacios|espacios.*texto|trim)/.test(normalized)) {
+    const fields = (matches.length ? matches : state.columns.filter(column => column.type === 'text'));
+    const nextRows = state.rows.map(row => {
+      const next = { ...row };
+      fields.forEach(column => { if (typeof next[column.name] === 'string') next[column.name] = next[column.name].trim(); });
+      return next;
+    });
+    const changed = nextRows.some((row, index) => JSON.stringify(row) !== JSON.stringify(state.rows[index]));
+    if (!changed) { announce('No se han encontrado espacios exteriores que limpiar.'); return true; }
+    rememberTransformation(fields.length ? `Limpiar espacios en ${fields.map(column => column.name).join(', ')}` : 'Limpiar espacios de texto');
+    reloadTransformedRows(nextRows, 'Espacios exteriores recortados en campos de texto.');
+    announce('Espacios exteriores limpiados localmente.');
+    return true;
+  }
+
+  if (/normaliza|estandariza/.test(normalized)) {
+    const field = matches.find(column => column.type === 'number')?.name || metricField();
+    if (!field) { announce('Indica un campo numérico para normalizar, por ejemplo: normaliza finds.', 'error'); return true; }
+    const values = state.rows.map(row => toNumber(row[field])).filter(value => value !== null);
+    if (!values.length) { announce(`El campo ${field} no contiene valores numéricos normalizables.`, 'error'); return true; }
+    const min = Math.min(...values); const max = Math.max(...values); const normalizedField = `${field}_normalizado`;
+    let target = normalizedField; let suffix = 2;
+    while (state.columns.some(column => column.name === target)) target = `${normalizedField}_${suffix++}`;
+    const nextRows = state.rows.map(row => { const value = toNumber(row[field]); return { ...row, [target]: value === null ? null : min === max ? 0.5 : (value - min) / (max - min) }; });
+    rememberTransformation(`Normalizar ${field}`);
+    reloadTransformedRows(nextRows, `Se creó ${target} en el intervalo 0–1.`);
+    announce(`Campo ${target} creado mediante normalización min–max.`);
+    return true;
+  }
+
+  return false;
+}
+
 function executeAssistantCommand(command) {
+  if (applyAssistantDataOperation(command)) return;
   const plan = buildAssistantPlan(command);
   if (!plan.xField || !plan.yField) throw new Error('No he encontrado campos suficientes para construir esa visualización.');
   state.chartType = plan.chartType;
@@ -361,7 +525,7 @@ function applyRecommendedDashboard() {
 
 function showAssistantModal() {
   document.querySelector('#assistant-modal')?.remove();
-  document.body.insertAdjacentHTML('beforeend', `<div id="assistant-modal" class="modal-backdrop"><div class="modal-card assistant-card" role="dialog" aria-modal="true" aria-labelledby="assistant-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Asistencia local</span><h2 id="assistant-title">Analista de tu conjunto</h2></div><button class="remove-card" data-modal-action="close" aria-label="Cerrar ventana">×</button></div><p class="helper">Los cálculos se ejecutan en este navegador. Gemini Nano solo se usa si Chrome lo ofrece; no se envían filas a un servidor.</p><label for="assistant-command">Orden para el dashboard<span><textarea id="assistant-command" rows="3" maxlength="240" placeholder="Ej.: crea un mapa de calor de finds y area_ha"></textarea></span></label><div class="assistant-actions"><button class="button button-primary" data-modal-action="execute">Ejecutar orden local</button><button class="button button-soft" data-modal-action="insights">Calcular resumen completo</button><button class="button button-ghost" data-modal-action="recommend">Montar análisis automático</button><button class="button button-ghost" data-modal-action="nano">Preguntar a Gemini Nano</button></div><div id="assistant-result" class="assistant-result" aria-live="polite"><span class="muted">La orden local crea una visual y la añade al dashboard. Gemini Nano puede explicar la petición si está disponible.</span></div><div class="provenance"><strong>Privacidad y límites</strong><span>El asistente recibe solo un perfil compacto para interpretar el conjunto. Verifica siempre definiciones, unidades, proyección y calidad de los datos antes de publicar conclusiones.</span></div></div></div>`);
+  document.body.insertAdjacentHTML('beforeend', `<div id="assistant-modal" class="modal-backdrop"><div class="modal-card assistant-card" role="dialog" aria-modal="true" aria-labelledby="assistant-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Asistencia local</span><h2 id="assistant-title">Analista de tu conjunto</h2></div><button class="remove-card" data-modal-action="close" aria-label="Cerrar ventana">×</button></div><p class="helper">Los cálculos y tratamientos se ejecutan en este navegador. Gemini Nano solo se usa si Chrome lo ofrece; no se envían filas a un servidor.</p><label for="assistant-command">Orden para el dashboard o los datos<span><textarea id="assistant-command" rows="3" maxlength="240" placeholder="Ej.: crea un mapa de calor de finds y area_ha · normaliza finds"></textarea></span></label><div class="assistant-actions"><button class="button button-primary" data-modal-action="execute">Ejecutar orden local</button><button class="button button-soft" data-modal-action="insights">Calcular resumen completo</button><button class="button button-ghost" data-modal-action="recommend">Montar análisis automático</button><button class="button button-ghost" data-modal-action="nano">Preguntar a Gemini Nano</button></div><div id="assistant-result" class="assistant-result" aria-live="polite"><span class="muted">La orden local puede crear una visual o preparar datos de forma reversible. Gemini Nano puede explicar la petición si está disponible.</span></div><div class="provenance"><strong>Privacidad y límites</strong><span>El asistente recibe solo un perfil compacto para interpretar el conjunto. Verifica siempre definiciones, unidades, proyección y calidad de los datos antes de publicar conclusiones.</span></div></div></div>`);
   const modal = document.querySelector('#assistant-modal');
   const previousFocus = document.activeElement;
   const close = () => { modal?.remove(); previousFocus?.focus?.(); };
@@ -441,6 +605,7 @@ function saveProject() {
 
 function resetFromDemo() {
   loadRows(DEMO_ROWS, { name: 'Muestra arqueológica local', kind: 'synthetic', detail: 'Datos sintéticos de demostración. No representan un inventario oficial.' });
+  transformationHistory.length = 0;
   state.dashboard = defaultDashboard();
   state.activeTab = 'overview';
   announce('Se ha restaurado la muestra local.');
@@ -453,6 +618,7 @@ async function importDataset(file) {
     const rows = parseAny(await file.text(), file.name);
     if (!rows.length) throw new Error('No se encontraron filas interpretables.');
     loadRows(rows, { name: file.name, kind: 'local', detail: `Archivo local ${file.name}. Procesado íntegramente en este navegador.` });
+    transformationHistory.length = 0;
     state.dashboard = defaultDashboard();
     state.activeTab = 'overview';
     announce(`${format(rows.length, 0)} filas cargadas desde ${file.name}.`);
@@ -475,6 +641,7 @@ function showPasteModal() {
       const rows = parseAny(modal.querySelector('#paste-data').value, 'pasted.csv');
       if (!rows.length) throw new Error('No se encontraron filas.');
       loadRows(rows, { name: 'Datos pegados', kind: 'pasted', detail: 'Contenido pegado por el usuario y procesado localmente.' });
+      transformationHistory.length = 0;
       state.dashboard = defaultDashboard();
       state.activeTab = 'overview';
       close();
@@ -493,6 +660,7 @@ async function importProject(file) {
     const meta = project.meta && typeof project.meta === 'object' ? project.meta : {};
     const kind = ['synthetic', 'pasted', 'local'].includes(meta.kind) ? meta.kind : 'local';
     loadRows(project.rows, { name: typeof meta.name === 'string' && meta.name.trim() ? meta.name : file.name, kind, detail: typeof meta.detail === 'string' ? meta.detail : 'Proyecto local procesado en este navegador.' });
+    transformationHistory.length = 0;
     state.filters = sanitizeFilters(project.filters);
     state.search = typeof project.search === 'string' ? project.search.slice(0, 500) : '';
     state.xField = safeField(project.xField, state.xField);
@@ -523,7 +691,9 @@ function addCalculatedField() {
   if (tokens.some(token => !names.includes(token))) { announce('La fórmula usa un campo que no existe o cuyo nombre no es compatible.', 'error'); return; }
   try {
     const calculate = Function(...names, `return (${formula});`);
-    state.rows = state.rows.map(row => { const result = calculate(...names.map(field => toNumber(row[field]) ?? 0)); return { ...row, [name]: Number.isFinite(result) ? result : null }; });
+    const nextRows = state.rows.map(row => { const result = calculate(...names.map(field => toNumber(row[field]) ?? 0)); return { ...row, [name]: Number.isFinite(result) ? result : null }; });
+    rememberTransformation(`Añadir campo calculado ${name}`);
+    state.rows = nextRows;
     rebuildColumns();
     state.dashboard = defaultDashboard();
     applyFilters();
@@ -557,6 +727,7 @@ function bind() {
     if (!actionNode) return;
     const action = actionNode.dataset.action;
     if (action === 'assistant') { showAssistantModal(); return; }
+    if (action === 'undo-transform') { undoLastTransformation(); return; }
     if (action === 'add-chart') {
       state.dashboard.cards.push({ id: 'chart-' + Date.now(), type: 'chart', title: state.chartTitle?.trim() || state.yField + ' por ' + state.xField, chartType: state.chartType, xField: state.xField, yField: state.yField, aggregation: state.aggregation, chartSort: state.chartSort });
       announce('Visual añadido al dashboard.');
