@@ -23,6 +23,8 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Órdenes de dashboard en lenguaje natural sin servidor: reconoce peticiones de mapas, calor bivariado, dispersión, histogramas, cajas, anillos, líneas y áreas, valida los campos disponibles y añade la visual resultante al panel.
 - Órdenes locales de tratamiento en lenguaje natural: elimina duplicados, quita filas vacías, rellena faltantes con media/moda o un valor indicado, limpia espacios y crea campos normalizados min–max; cada cambio queda en un historial reversible con `Deshacer`.
 - Asistente local con resumen determinista, panel recomendado y compatibilidad opcional con Gemini Nano mediante la Prompt API de Chrome. La IA solo se inicia tras una acción explícita y no sustituye la validación de unidades, proyección ni semántica.
+- Gemini Nano puede devolver un plan JSON validado contra el esquema real y aplicar una visualización o tratamiento permitido; el plan no puede inventar campos y los tratamientos siguen pasando por la ruta local reversible.
+- El resumen automático incluye mediana, desviación estándar descriptiva, correlación, pendiente y R² de regresión descriptiva cuando hay pares numéricos; se muestran como asociación, no como causalidad ni predicción.
 - Reapertura tolerante de proyectos: valida pestañas, campos, filtros, tarjetas y metadatos antes de reconstruir la vista.
 - Service worker para reutilizar la interfaz sin conexión después de la primera visita.
 - Instalación PWA con icono, diseño responsive y controles táctiles para escritorio, tableta y móvil.

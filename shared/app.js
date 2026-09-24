@@ -252,7 +252,9 @@ function deterministicInsights() {
     const values = state.filtered.map(row => toNumber(row[column.name])).filter(value => value !== null);
     if (values.length) {
       const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
       insights.push(`${column.name}: media ${format(mean, 2)}, rango ${format(Math.min(...values), 2)}–${format(Math.max(...values), 2)}.`);
+      insights.push(`${column.name}: mediana ${format([...values].sort((a, b) => a - b)[Math.floor((values.length - 1) * .5)], 2)} y desviación estándar descriptiva ${format(Math.sqrt(variance), 2)}.`);
       const sorted = [...values].sort((a, b) => a - b);
       const q1 = sorted[Math.floor((sorted.length - 1) * .25)];
       const q3 = sorted[Math.floor((sorted.length - 1) * .75)];
@@ -276,7 +278,15 @@ function deterministicInsights() {
       const meanY = pairs.reduce((sum, pair) => sum + pair[1], 0) / pairs.length;
       const numerator = pairs.reduce((sum, pair) => sum + (pair[0] - meanX) * (pair[1] - meanY), 0);
       const denominator = Math.sqrt(pairs.reduce((sum, pair) => sum + (pair[0] - meanX) ** 2, 0) * pairs.reduce((sum, pair) => sum + (pair[1] - meanY) ** 2, 0));
-      if (denominator) insights.push(`La correlación lineal entre ${numeric[0].name} y ${numeric[1].name} es ${format(numerator / denominator, 2)}; describe asociación, no causalidad.`);
+      if (denominator) {
+        const varianceX = pairs.reduce((sum, pair) => sum + (pair[0] - meanX) ** 2, 0);
+        const slope = varianceX ? numerator / varianceX : null;
+        const residuals = slope === null ? [] : pairs.map(pair => pair[1] - (meanY + slope * (pair[0] - meanX)));
+        const totalSquares = pairs.reduce((sum, pair) => sum + (pair[1] - meanY) ** 2, 0);
+        const rSquared = totalSquares ? 1 - residuals.reduce((sum, value) => sum + value ** 2, 0) / totalSquares : null;
+        insights.push(`La correlación lineal entre ${numeric[0].name} y ${numeric[1].name} es ${format(numerator / denominator, 2)}; describe asociación, no causalidad.`);
+        if (slope !== null && rSquared !== null) insights.push(`La regresión lineal descriptiva estima una pendiente de ${format(slope, 3)} y R²=${format(rSquared, 2)}; no es una predicción ni prueba causal.`);
+      }
     }
   }
   const text = state.columns.find(column => column.type === 'text');
@@ -292,7 +302,7 @@ function deterministicInsights() {
   return insights;
 }
 
-async function askLocalModel(request = '') {
+async function askLocalModel(request = '', mode = 'analysis') {
   const availability = state.aiAvailability || await detectLocalAI();
   if (!['available', 'downloadable'].includes(availability)) throw new Error('Gemini Nano no está disponible en este navegador.');
   const api = window.LanguageModel;
@@ -301,10 +311,46 @@ async function askLocalModel(request = '') {
     state.aiSession = await api.create({ expectedInputs: [{ type: 'text', languages: ['es'] }], expectedOutputs: [{ type: 'text', languages: ['es'] }], monitor(monitor) { monitor.addEventListener('downloadprogress', event => { setAIStatus(`Descargando Gemini Nano ${Math.round(event.loaded * 100)}%`, 'idle'); }); } });
   }
   const profile = compactDataProfile();
-  const prompt = `Actúa como analista de datos. Responde en español, con prudencia y sin inventar. Analiza este perfil local y propone hasta cinco acciones concretas de limpieza, métricas o visualizaciones. Si el usuario ha pedido una operación, explica cómo ejecutarla con los campos disponibles y no inventes columnas. Si hay coordenadas, recomienda un mapa apropiado. No afirmes causalidad. Petición del usuario: ${request || 'sin petición adicional'}. Perfil: ${JSON.stringify(profile)}`;
+  const prompt = mode === 'plan'
+    ? `Actúa como un planificador de operaciones de datos. Devuelve SOLO un objeto JSON válido, sin markdown ni explicación. Elige una sola acción: chart o treatment. Para chart usa exactamente este esquema: {"action":"chart","chartType":"bar|line|area|donut|scatter|histogram|boxplot|map|bubble-map|density-map|heatmap","xField":"nombre exacto","yField":"nombre exacto","aggregation":"sum|avg|count","chartSort":"original|value-desc|value-asc","title":"título breve"}. Para treatment usa: {"action":"treatment","command":"orden breve en español"}. Solo puedes usar nombres de campos que aparezcan en el perfil. No inventes campos, coordenadas ni valores. La orden treatment debe ser una de estas operaciones: eliminar duplicados, eliminar filas vacías, rellenar faltantes, limpiar espacios o normalizar un campo numérico. Petición: ${request || 'elige un análisis útil'}. Perfil: ${JSON.stringify(profile)}`
+    : `Actúa como analista de datos. Responde en español, con prudencia y sin inventar. Analiza este perfil local y propone hasta cinco acciones concretas de limpieza, métricas o visualizaciones. Si el usuario ha pedido una operación, explica cómo ejecutarla con los campos disponibles y no inventes columnas. Si hay coordenadas, recomienda un mapa apropiado. No afirmes causalidad. Petición del usuario: ${request || 'sin petición adicional'}. Perfil: ${JSON.stringify(profile)}`;
   const answer = await state.aiSession.prompt(prompt);
   setAIStatus('Gemini Nano listo', 'ready');
   return answer;
+}
+
+function parseLocalPlan(raw) {
+  const candidate = String(raw || '').match(/\{[\s\S]*\}/)?.[0];
+  if (!candidate) throw new Error('Gemini Nano no devolvió un plan JSON interpretable.');
+  try { return JSON.parse(candidate); } catch { throw new Error('El plan de Gemini Nano no es un JSON válido.'); }
+}
+
+function applyLocalPlan(plan) {
+  if (!plan || typeof plan !== 'object') throw new Error('El plan local está vacío.');
+  if (plan.action === 'treatment') {
+    if (typeof plan.command !== 'string' || !applyAssistantDataOperation(plan.command)) throw new Error('El plan propone un tratamiento que no ha podido validarse localmente.');
+    return;
+  }
+  if (plan.action !== 'chart') throw new Error('El plan debe indicar una visualización o un tratamiento.');
+  const chartType = CHART_TYPES.includes(plan.chartType) ? plan.chartType : '';
+  const xField = typeof plan.xField === 'string' && hasColumn(plan.xField) ? plan.xField : '';
+  const yField = typeof plan.yField === 'string' && hasColumn(plan.yField) ? plan.yField : '';
+  if (!chartType || !xField || !yField) throw new Error('El plan usa un tipo o campos que no existen en este conjunto.');
+  if (['scatter', 'heatmap'].includes(chartType) && (!state.columns.find(column => column.name === xField && column.type === 'number') || !state.columns.find(column => column.name === yField && column.type === 'number'))) throw new Error('Esta visualización necesita dos campos numéricos.');
+  if (['map', 'bubble-map', 'density-map'].includes(chartType) && (!coordinates().longitude || !coordinates().latitude || xField !== coordinates().longitude || yField !== coordinates().latitude)) throw new Error('El mapa debe usar las coordenadas detectadas en el conjunto.');
+  const aggregation = AGGREGATIONS.includes(plan.aggregation) ? plan.aggregation : 'count';
+  const chartSort = SORT_MODES.includes(plan.chartSort) ? plan.chartSort : 'original';
+  const title = typeof plan.title === 'string' && plan.title.trim() ? plan.title.trim().slice(0, 80) : 'Visualización asistida por Gemini Nano';
+  state.chartType = chartType;
+  state.xField = xField;
+  state.yField = yField;
+  state.aggregation = aggregation;
+  state.chartSort = chartSort;
+  state.chartTitle = title;
+  state.dashboard.cards.push({ id: `gemini-${Date.now()}`, type: 'chart', title, chartType, xField, yField, aggregation, chartSort });
+  state.activeTab = 'overview';
+  renderAll();
+  announce(`Plan de Gemini Nano aplicado: ${CHART_LABELS[chartType]}.`);
 }
 
 function assistantFieldMatches(command) {
@@ -525,7 +571,7 @@ function applyRecommendedDashboard() {
 
 function showAssistantModal() {
   document.querySelector('#assistant-modal')?.remove();
-  document.body.insertAdjacentHTML('beforeend', `<div id="assistant-modal" class="modal-backdrop"><div class="modal-card assistant-card" role="dialog" aria-modal="true" aria-labelledby="assistant-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Asistencia local</span><h2 id="assistant-title">Analista de tu conjunto</h2></div><button class="remove-card" data-modal-action="close" aria-label="Cerrar ventana">×</button></div><p class="helper">Los cálculos y tratamientos se ejecutan en este navegador. Gemini Nano solo se usa si Chrome lo ofrece; no se envían filas a un servidor.</p><label for="assistant-command">Orden para el dashboard o los datos<span><textarea id="assistant-command" rows="3" maxlength="240" placeholder="Ej.: crea un mapa de calor de finds y area_ha · normaliza finds"></textarea></span></label><div class="assistant-actions"><button class="button button-primary" data-modal-action="execute">Ejecutar orden local</button><button class="button button-soft" data-modal-action="insights">Calcular resumen completo</button><button class="button button-ghost" data-modal-action="recommend">Montar análisis automático</button><button class="button button-ghost" data-modal-action="nano">Preguntar a Gemini Nano</button></div><div id="assistant-result" class="assistant-result" aria-live="polite"><span class="muted">La orden local puede crear una visual o preparar datos de forma reversible. Gemini Nano puede explicar la petición si está disponible.</span></div><div class="provenance"><strong>Privacidad y límites</strong><span>El asistente recibe solo un perfil compacto para interpretar el conjunto. Verifica siempre definiciones, unidades, proyección y calidad de los datos antes de publicar conclusiones.</span></div></div></div>`);
+  document.body.insertAdjacentHTML('beforeend', `<div id="assistant-modal" class="modal-backdrop"><div class="modal-card assistant-card" role="dialog" aria-modal="true" aria-labelledby="assistant-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Asistencia local</span><h2 id="assistant-title">Analista de tu conjunto</h2></div><button class="remove-card" data-modal-action="close" aria-label="Cerrar ventana">×</button></div><p class="helper">Los cálculos y tratamientos se ejecutan en este navegador. Gemini Nano solo se usa si Chrome lo ofrece; no se envían filas a un servidor.</p><label for="assistant-command">Orden para el dashboard o los datos<span><textarea id="assistant-command" rows="3" maxlength="240" placeholder="Ej.: crea un mapa de calor de finds y area_ha · normaliza finds"></textarea></span></label><div class="assistant-actions"><button class="button button-primary" data-modal-action="execute">Ejecutar orden local</button><button class="button button-soft" data-modal-action="insights">Calcular resumen completo</button><button class="button button-ghost" data-modal-action="recommend">Montar análisis automático</button><button class="button button-ghost" data-modal-action="nano-apply">Interpretar y aplicar con Gemini Nano</button><button class="button button-ghost" data-modal-action="nano">Preguntar a Gemini Nano</button></div><div id="assistant-result" class="assistant-result" aria-live="polite"><span class="muted">La orden local puede crear una visual o preparar datos de forma reversible. Gemini Nano puede interpretar y aplicar una orden validada si el navegador lo ofrece.</span></div><div class="provenance"><strong>Privacidad y límites</strong><span>El asistente recibe solo un perfil compacto para interpretar el conjunto. Verifica siempre definiciones, unidades, proyección y calidad de los datos antes de publicar conclusiones.</span></div></div></div>`);
   const modal = document.querySelector('#assistant-modal');
   const previousFocus = document.activeElement;
   const close = () => { modal?.remove(); previousFocus?.focus?.(); };
@@ -535,6 +581,16 @@ function showAssistantModal() {
   modal.querySelector('[data-modal-action="execute"]').addEventListener('click', () => {
     try { executeAssistantCommand(modal.querySelector('#assistant-command').value); close(); }
     catch (error) { modal.querySelector('#assistant-result').innerHTML = `<div class="alert alert-error">${esc(error.message)}</div>`; }
+  });
+  modal.querySelector('[data-modal-action="nano-apply"]').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    const result = modal.querySelector('#assistant-result');
+    const command = modal.querySelector('#assistant-command').value.trim();
+    button.disabled = true;
+    result.innerHTML = '<span class="muted">Gemini Nano está interpretando la orden y comprobando los campos…</span>';
+    try { applyLocalPlan(parseLocalPlan(await askLocalModel(command, 'plan'))); close(); }
+    catch (error) { result.innerHTML = `<div class="alert alert-error">${esc(error.message)}<br><small>Puedes usar la ejecución local determinista o el resumen sin IA.</small></div>`; }
+    finally { button.disabled = false; }
   });
   modal.querySelector('[data-modal-action="nano"]').addEventListener('click', async event => {
     const button = event.currentTarget;
