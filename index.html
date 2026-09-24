@@ -8,7 +8,7 @@
   <title>Data Insight Web Tools</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="shared/styles.css?v=20260924-6">
+  <link rel="stylesheet" href="shared/styles.css?v=20260924-8">
 </head>
 <body class="catalog-page">
   <main class="catalog">
@@ -16,14 +16,14 @@
     <h1>Data Insight Web Tools</h1>
     <p class="lede">Un pequeño entorno analítico que funciona en el navegador: importa datos, comprueba su calidad, transforma campos y monta dashboards interactivos sin servidor.</p>
     <section class="catalog-grid" aria-label="Herramientas disponibles">
-      <article class="catalog-card featured"><span class="card-icon">▦</span><p class="tag">workspace principal</p><h2>Data Insight Studio</h2><p>Un espacio de trabajo tipo Tableau: carga CSV, JSON o GeoJSON, filtra, calcula métricas, crea gráficos, compone un dashboard y exporta el proyecto.</p><a href="dashboard-studio/">Abrir Studio →</a></article>
+      <article class="catalog-card featured"><span class="card-icon">▦</span><p class="tag">workspace principal</p><h2>Data Insight Studio</h2><p>Un espacio de trabajo tipo Tableau: carga CSV, JSON o GeoJSON, filtra, calcula métricas, crea gráficos, mapas de puntos y burbujas, compone un dashboard y recibe asistencia local.</p><a href="dashboard-studio/">Abrir Studio →</a></article>
       <article class="catalog-card"><span class="card-icon">◌</span><p class="tag">calidad de datos</p><h2>Data Profiler</h2><p>Perfilado de columnas, valores nulos, duplicados, tipos, rangos, cardinalidad y vista de registros filtrados.</p><a href="herramientas/data-profiler/">Abrir Profiler →</a></article>
       <article class="catalog-card"><span class="card-icon">ƒ</span><p class="tag">preparación</p><h2>Transform Lab</h2><p>Filtra datos, crea campos calculados locales, inspecciona cambios y exporta una tabla limpia para continuar el trabajo en un SIG o una hoja de cálculo.</p><a href="herramientas/transform-lab/">Abrir Transform Lab →</a></article>
       <article class="catalog-card"><span class="card-icon">Σ</span><p class="tag">agregación</p><h2>Pivot Lab</h2><p>Agrupa una tabla por cualquier campo, calcula sumas, medias, recuentos, mínimos o máximos y exporta un resumen analítico.</p><a href="herramientas/pivot-lab/">Abrir Pivot Lab →</a></article>
     </section>
-    <section class="principles"><span>✓ CSV · JSON · GeoJSON</span><span>✓ filtros y métricas locales</span><span>✓ dashboards exportables</span><span>✓ sin subir archivos</span></section>
+    <section class="principles"><span>✓ CSV · JSON · GeoJSON</span><span>✓ 9 familias de visualización</span><span>✓ dashboards exportables</span><span>✓ Gemini Nano opcional</span><span>✓ sin subir archivos</span></section>
     <p class="privacy">Los datos de ejemplo son sintéticos. Los archivos que importes se procesan en este navegador y solo se guardan si eliges exportar o guardar un proyecto.</p>
   </main>
-  <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});</script>
+  <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=20260924-9').catch(()=>{});</script>
 </body>
 </html>

@@ -80,14 +80,14 @@ function donutChart(rows, xField, yField, aggregation, ordering) {
 }
 
 function scatterChart(rows, xField, yField) {
-  const points = rows.map(row => ({ x: toNumber(row[xField]), y: toNumber(row[yField]) })).filter(point => point.x !== null && point.y !== null).slice(0, 250);
+  const points = rows.map((row, index) => ({ x: toNumber(row[xField]), y: toNumber(row[yField]), label: row.name ?? row.site ?? row.title ?? `Fila ${index + 1}` })).filter(point => point.x !== null && point.y !== null).slice(0, 250);
   if (!points.length) return emptyChart('Selecciona dos campos numéricos');
   const minX = Math.min(...points.map(point => point.x));
   const maxX = Math.max(...points.map(point => point.x));
   const minY = Math.min(...points.map(point => point.y));
   const maxY = Math.max(...points.map(point => point.y));
   const scale = (value, min, max, start, size) => start + ((value - min) / (max - min || 1)) * size;
-  const marks = points.map(point => `<circle class="scatter-point" cx="${scale(point.x, minX, maxX, 74, 700).toFixed(1)}" cy="${(274 - ((point.y - minY) / (maxY - minY || 1)) * 220).toFixed(1)}" r="5"/>`).join('');
+  const marks = points.map(point => `<circle class="scatter-point" cx="${scale(point.x, minX, maxX, 74, 700).toFixed(1)}" cy="${(274 - ((point.y - minY) / (maxY - minY || 1)) * 220).toFixed(1)}" r="5"><title>${esc(point.label)} · ${esc(xField)} ${format(point.x, 2)} · ${esc(yField)} ${format(point.y, 2)}</title></circle>`).join('');
   return chartFrame(`<text class="chart-axis-title" x="62" y="20">${esc(yField)} frente a ${esc(xField)}</text>${marks}<text class="chart-axis-label" x="74" y="300">${format(minX, 1)}</text><text class="chart-axis-label" x="774" y="300" text-anchor="end">${format(maxX, 1)}</text>`, 'Dispersión');
 }
 
@@ -108,11 +108,91 @@ function histogramChart(rows, field) {
   return chartFrame(`<text class="chart-axis-title" x="62" y="20">Distribución de ${esc(field)}</text>${bars}`, 'Histograma');
 }
 
+function areaChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, ordering);
+  if (!groups.length) return emptyChart();
+  const scale = chartScale(groups.map(item => item.value));
+  const step = groups.length === 1 ? 0 : 700 / (groups.length - 1);
+  const points = groups.map((item, index) => `${74 + index * step},${scale.y(item.value)}`).join(' ');
+  const firstX = 74;
+  const lastX = 74 + (groups.length - 1) * step;
+  const areaPoints = `${firstX},${scale.baseline} ${points} ${lastX},${scale.baseline}`;
+  const dots = groups.map((item, index) => {
+    const x = 74 + index * step;
+    const y = scale.y(item.value);
+    return `<circle cx="${x}" cy="${y}" r="5" fill="#70e1bb"><title>${esc(item.label)}: ${format(item.value, 1)}</title></circle><text class="chart-axis-label" x="${x}" y="296" text-anchor="middle">${axisLabel(item.label)}</text>`;
+  }).join('');
+  const zero = scale.baseline === 274 ? '' : `<line class="chart-zero" x1="62" y1="${scale.baseline.toFixed(1)}" x2="790" y2="${scale.baseline.toFixed(1)}"/>`;
+  return chartFrame(`<text class="chart-axis-title" x="62" y="20">${esc(yField)}</text>${zero}<polygon points="${areaPoints}" fill="#70e1bb26"/><polyline class="chart-line" points="${points}" fill="none" stroke="#70e1bb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>${dots}`, `${xField} como área`);
+}
+
+function boxPlotChart(rows, xField, yField, ordering) {
+  const groups = new Map();
+  rows.forEach(row => {
+    const value = toNumber(row[yField]);
+    if (value === null) return;
+    const label = String(row[xField] ?? 'Sin valor');
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(value);
+  });
+  let items = [...groups.entries()].map(([label, values]) => {
+    values.sort((a, b) => a - b);
+    const q = percentile => values[Math.min(values.length - 1, Math.floor((values.length - 1) * percentile))];
+    return { label, min: values[0], q1: q(.25), median: q(.5), q3: q(.75), max: values[values.length - 1], count: values.length };
+  });
+  if (ordering === 'value-desc') items.sort((a, b) => b.median - a.median);
+  if (ordering === 'value-asc') items.sort((a, b) => a.median - b.median);
+  items = items.slice(0, 16);
+  if (!items.length) return emptyChart('Selecciona una dimensión y una métrica numérica');
+  const min = Math.min(...items.map(item => item.min));
+  const max = Math.max(...items.map(item => item.max));
+  const scale = value => 274 - ((value - min) / (max - min || 1)) * 220;
+  const slot = 700 / items.length;
+  const marks = items.map((item, index) => {
+    const center = 74 + index * slot + slot / 2;
+    const boxWidth = Math.min(42, slot * .52);
+    const yMin = scale(item.min);
+    const yQ1 = scale(item.q1);
+    const yMedian = scale(item.median);
+    const yQ3 = scale(item.q3);
+    const yMax = scale(item.max);
+    return `<g class="box-plot"><title>${esc(item.label)} · n=${item.count} · mediana ${format(item.median, 1)}</title><line x1="${center}" y1="${yMax}" x2="${center}" y2="${yMin}" stroke="#8bc9ff" stroke-width="2"/><line x1="${center - boxWidth / 3}" y1="${yMax}" x2="${center + boxWidth / 3}" y2="${yMax}" stroke="#8bc9ff"/><line x1="${center - boxWidth / 3}" y1="${yMin}" x2="${center + boxWidth / 3}" y2="${yMin}" stroke="#8bc9ff"/><rect x="${center - boxWidth / 2}" y="${yQ3}" width="${boxWidth}" height="${Math.max(3, yQ1 - yQ3)}" rx="5" fill="#a78bfa66" stroke="#a78bfa"/><line x1="${center - boxWidth / 2}" y1="${yMedian}" x2="${center + boxWidth / 2}" y2="${yMedian}" stroke="#fbbf24" stroke-width="3"/><text class="chart-axis-label" x="${center}" y="296" text-anchor="middle">${axisLabel(item.label)}</text></g>`;
+  }).join('');
+  return chartFrame(`<text class="chart-axis-title" x="62" y="20">${esc(yField)} · distribución por ${esc(xField)}</text>${marks}<text class="chart-axis-label" x="50" y="38" text-anchor="end">${format(max, 1)}</text><text class="chart-axis-label" x="50" y="274" text-anchor="end">${format(min, 1)}</text>`, 'Diagrama de caja');
+}
+
+function mapChart(rows, longitudeField, latitudeField, bubbles = false) {
+  const rawPoints = rows.map((row, index) => ({
+    longitude: toNumber(row[longitudeField]),
+    latitude: toNumber(row[latitudeField]),
+    label: row.name ?? row.site ?? row.title ?? `Fila ${index + 1}`,
+    row
+  })).filter(point => point.longitude !== null && point.latitude !== null && Math.abs(point.longitude) <= 180 && Math.abs(point.latitude) <= 90).slice(0, 500);
+  const points = bubbles ? [...rawPoints.reduce((groups, point) => { const key = `${point.longitude.toFixed(5)}|${point.latitude.toFixed(5)}`; const current = groups.get(key) || { ...point, count: 0 }; current.count += 1; groups.set(key, current); return groups; }, new Map()).values()] : rawPoints.map(point => ({ ...point, count: 1 }));
+  if (!points.length) return emptyChart('Selecciona longitud y latitud numéricas para crear el mapa');
+  const minLon = Math.min(...points.map(point => point.longitude));
+  const maxLon = Math.max(...points.map(point => point.longitude));
+  const minLat = Math.min(...points.map(point => point.latitude));
+  const maxLat = Math.max(...points.map(point => point.latitude));
+  const padLon = (maxLon - minLon || 1) * .08;
+  const padLat = (maxLat - minLat || 1) * .08;
+  const x = value => 74 + ((value - (minLon - padLon)) / ((maxLon + padLon) - (minLon - padLon) || 1)) * 700;
+  const y = value => 274 - ((value - (minLat - padLat)) / ((maxLat + padLat) - (minLat - padLat) || 1)) * 220;
+  const grid = [0.25, 0.5, 0.75].map(step => `<line x1="${74 + step * 700}" y1="34" x2="${74 + step * 700}" y2="274"/><line x1="74" y1="${274 - step * 220}" x2="774" y2="${274 - step * 220}"/>`).join('');
+  const marks = points.map((point, index) => `<circle class="map-point" cx="${x(point.longitude).toFixed(1)}" cy="${y(point.latitude).toFixed(1)}" r="${bubbles ? Math.min(18, 5 + Math.sqrt(point.count) * 3) : 5}" fill="${COLORS[index % COLORS.length]}"><title>${esc(point.label)} · lon ${format(point.longitude, 5)} · lat ${format(point.latitude, 5)}${bubbles ? ` · ${point.count} registros` : ''}</title></circle>`).join('');
+  const title = bubbles ? 'Mapa de burbujas · tamaño por registros coincidentes' : 'Mapa de puntos · coordenadas WGS84';
+  return chartFrame(`<g class="map-grid">${grid}</g><text class="chart-axis-title" x="62" y="20">${title}</text>${marks}<text class="chart-axis-label" x="74" y="296">${format(minLon, 4)}°</text><text class="chart-axis-label" x="774" y="296" text-anchor="end">${format(maxLon, 4)}°</text><text class="chart-axis-label" x="58" y="40" text-anchor="end">${format(maxLat, 4)}°</text><text class="chart-axis-label" x="58" y="274" text-anchor="end">${format(minLat, 4)}°</text>`, bubbles ? 'Mapa de burbujas' : 'Mapa de puntos');
+}
+
 export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original') {
   if (type === 'line') return signedLineChart(rows, xField, yField, aggregation, ordering);
+  if (type === 'area') return areaChart(rows, xField, yField, aggregation, ordering);
   if (type === 'donut') return donutChart(rows, xField, yField, aggregation, ordering);
   if (type === 'scatter') return scatterChart(rows, xField, yField);
   if (type === 'histogram') return histogramChart(rows, yField);
+  if (type === 'boxplot') return boxPlotChart(rows, xField, yField, ordering);
+  if (type === 'map') return mapChart(rows, xField, yField);
+  if (type === 'bubble-map') return mapChart(rows, xField, yField, true);
   return signedBarChart(rows, xField, yField, aggregation, ordering);
 }
 

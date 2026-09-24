@@ -82,6 +82,17 @@ export function rebuildColumns() {
   if (!state.yField || !state.columns.some(column => column.name === state.yField && column.type === 'number') || /^(id|_row_id|latitude|longitude)$/i.test(state.yField)) state.yField = state.columns.find(column => column.type === 'number' && !/^(id|_row_id|latitude|longitude)$/i.test(column.name))?.name || state.columns.find(column => column.type === 'number')?.name || state.columns[0]?.name || '';
 }
 
+// Detecta nombres habituales de coordenadas sin alterar los datos originales.
+// El mapa trabaja siempre con el par longitude/latitude en el orden X/Y.
+export function geoFields(columns = state.columns) {
+  const names = columns.map(column => column.name);
+  const find = patterns => names.find(name => patterns.some(pattern => pattern.test(name))) || '';
+  return {
+    longitude: find([/^lon(?:gitude)?$/i, /^lng$/i, /longitud/i, /longitude/i, /coord[_ ]?x$/i, /^x$/i]),
+    latitude: find([/^lat(?:itude)?$/i, /latitud/i, /latitude/i, /coord[_ ]?y$/i, /^y$/i])
+  };
+}
+
 export function applyFilters() {
   const query = state.search.trim().toLowerCase();
   state.filtered = state.rows.filter(row => {

@@ -1,11 +1,12 @@
-import { DEMO_ROWS, state, esc, format, toNumber, isMissing, parseAny, loadRows, rebuildColumns, applyFilters } from './data.js';
+import { DEMO_ROWS, state, esc, format, toNumber, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js';
 import { chartSVG, tableHTML } from './charts.js';
 
 const root = document.body;
 const mode = root.dataset.mode || 'dashboard';
 const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'analyze' : 'overview';
 const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
-const CHART_TYPES = ['bar', 'line', 'donut', 'scatter', 'histogram'];
+const CHART_TYPES = ['bar', 'line', 'area', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map'];
+const CHART_LABELS = { bar: 'Barras', line: 'Línea', area: 'Área', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas' };
 const AGGREGATIONS = ['sum', 'avg', 'count'];
 const SORT_MODES = ['original', 'value-desc', 'value-asc'];
 const numericColumns = () => state.columns.filter(column => column.type === 'number');
@@ -13,6 +14,9 @@ const metricField = () => { const all = numericColumns(); const preferred = all.
 const hasColumn = (name, type = '') => typeof name === 'string' && state.columns.some(column => column.name === name && (!type || column.type === type));
 const safeTab = tab => TAB_IDS.includes(tab) ? tab : 'overview';
 const safeField = (value, fallback, type = '') => hasColumn(value, type) ? value : fallback;
+const coordinates = () => geoFields(state.columns);
+const firstTextField = () => state.columns.find(column => column.type === 'text')?.name || state.columns[0]?.name || '';
+const firstNumericField = () => state.columns.find(column => column.type === 'number')?.name || '';
 
 function sanitizeFilters(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
@@ -47,12 +51,14 @@ function defaultDashboard() {
   const numeric = metricField();
   const dimension = state.columns.find(column => column.type === 'text')?.name || state.xField || state.columns[0]?.name || '';
   const aggregation = numeric ? 'sum' : 'count';
+  const geo = coordinates();
   const cards = [
     { id: 'kpi-rows', type: 'kpi', metric: 'rows' }
   ];
   if (numeric) cards.push({ id: 'kpi-sum', type: 'kpi', metric: 'sum', field: numeric });
   cards.push({ id: 'kpi-complete', type: 'kpi', metric: 'complete' });
   if (dimension) cards.push({ id: 'chart-main', type: 'chart', title: 'Distribución principal', chartType: 'bar', xField: dimension, yField: numeric || dimension, aggregation });
+  if (geo.longitude && geo.latitude) cards.push({ id: 'map-main', type: 'chart', title: 'Distribución espacial', chartType: 'map', xField: geo.longitude, yField: geo.latitude, aggregation: 'count' });
   cards.push({ id: 'table-main', type: 'table', title: 'Registros filtrados' });
   return {
     cards
@@ -61,11 +67,12 @@ function defaultDashboard() {
 
 function shellMarkup() {
   root.innerHTML = `<div class="app-shell">
-    <header class="appbar"><a class="brand" href="../" aria-label="Data Insight Web Tools"><span class="brand-mark">DI</span><span><strong>Data Insight</strong><small>local analytics studio</small></span></a><div class="appbar-actions"><button class="icon-button" data-action="fullscreen" title="Pantalla completa" aria-label="Pantalla completa">⛶</button><button class="button button-ghost" data-action="save">Guardar proyecto</button><button class="button button-ghost" data-action="export-json">Exportar JSON</button><button class="button button-primary" data-action="export">Exportar CSV</button></div></header>
+    <header class="appbar"><a class="brand" href="../" aria-label="Data Insight Web Tools"><span class="brand-mark">DI</span><span><strong>Data Insight</strong><small>local analytics studio</small></span></a><div class="appbar-actions"><button class="button button-soft" data-action="assistant">✦ Asistente local</button><button class="icon-button" data-action="fullscreen" title="Pantalla completa" aria-label="Pantalla completa">⛶</button><button class="button button-ghost" data-action="save">Guardar proyecto</button><button class="button button-ghost" data-action="export-json">Exportar JSON</button><button class="button button-primary" data-action="export">Exportar CSV</button></div></header>
     <div class="app-layout">
       <aside class="sidebar"><div class="sidebar-heading"><span class="eyebrow">Espacio de trabajo</span><h2>Explora tus datos</h2></div><div class="dataset-card"><span class="status-dot"></span><strong id="dataset-name">Cargando…</strong><small id="dataset-meta"></small><span id="dataset-kind" class="badge"></span></div>
         <nav class="side-nav" aria-label="Secciones"><button data-tab="overview">▦ <span>Dashboard</span></button><button data-tab="prepare">⌘ <span>Preparar datos</span></button><button data-tab="analyze">◒ <span>Analizar</span></button><button data-tab="quality">✓ <span>Calidad</span></button></nav>
         <div class="side-divider"></div><span class="eyebrow">Entrada y salida</span><div class="side-actions"><button class="button button-soft" data-action="import">＋ Cargar CSV, JSON o GeoJSON</button><button class="button button-ghost wide" data-action="paste">Pegar datos</button><button class="button button-ghost wide" data-action="load-project">Abrir proyecto guardado</button><button class="button button-ghost wide" data-action="reset">Restaurar muestra</button><input id="file-input" type="file" accept=".csv,.tsv,.txt,.json,.geojson,application/json,text/csv" hidden><input id="project-input" type="file" accept=".data-insight.json,application/json" hidden></div>
+        <div class="local-ai-status"><span class="status-dot" id="ai-status-dot"></span><div><strong>Asistencia local</strong><small id="ai-status">Comprobando Gemini Nano…</small></div></div>
         <div class="privacy-note"><span>◉</span><p><strong>Privado por diseño</strong><br>Los archivos se procesan en este navegador. No se suben a ningún servidor.</p></div>
       </aside>
       <main class="workspace"><div class="workspace-header"><div><div class="breadcrumbs">Data Insight <span>/</span> <span id="breadcrumb-current">Dashboard</span></div><h1 id="page-title">Dashboard ejecutivo</h1><p id="page-subtitle">Resume, filtra y comparte hallazgos sin abandonar tus datos.</p></div><div class="workspace-actions"><button class="button button-ghost" data-action="add-calculated">＋ Campo calculado</button><button class="button button-primary" data-action="add-chart">＋ Añadir visual</button></div></div><div id="app-alert" aria-live="polite"></div><section id="app-content"></section></main>
@@ -160,9 +167,11 @@ function renderAnalyze() {
   const aggregation = hasMetric && AGGREGATIONS.includes(state.aggregation) ? state.aggregation : 'count';
   if (state.aggregation !== aggregation) state.aggregation = aggregation;
   const disabledMetricOptions = hasMetric ? '' : ' disabled';
-  const helper = hasMetric ? 'Los gráficos se calculan en memoria con las filas filtradas y se pueden exportar junto al proyecto.' : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
+  const geo = coordinates();
+  const helper = hasMetric ? `Los gráficos se calculan en memoria con las filas filtradas. ${geo.longitude && geo.latitude ? `Se detectan coordenadas ${geo.longitude}/${geo.latitude}; elige Mapa de puntos para verlas.` : 'Puedes cargar un GeoJSON o campos lon/lat para activar el mapa.'}` : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
   const previewTitle = state.chartTitle || `${state.yField} por ${state.xField}`;
-  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Tipo de gráfico<select id="chart-type"><option value="bar" ${state.chartType === 'bar' ? 'selected' : ''}>Barras</option><option value="line" ${state.chartType === 'line' ? 'selected' : ''}>Línea</option><option value="donut" ${state.chartType === 'donut' ? 'selected' : ''}>Anillo</option><option value="scatter" ${state.chartType === 'scatter' ? 'selected' : ''}>Dispersión</option><option value="histogram" ${state.chartType === 'histogram' ? 'selected' : ''}>Histograma</option></select></label><label>Agregación<select id="aggregation"><option value="sum" ${aggregation === 'sum' ? 'selected' : ''}${disabledMetricOptions}>Suma</option><option value="avg" ${aggregation === 'avg' ? 'selected' : ''}${disabledMetricOptions}>Media</option><option value="count" ${aggregation === 'count' ? 'selected' : ''}>Recuento</option></select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper}</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><span class="panel-note">${format(state.filtered.length, 0)} filas</span></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
+  const chartOptions = Object.entries(CHART_LABELS).map(([value, label]) => `<option value="${value}" ${state.chartType === value ? 'selected' : ''}>${label}</option>`).join('');
+  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Agregación<select id="aggregation"><option value="sum" ${aggregation === 'sum' ? 'selected' : ''}${disabledMetricOptions}>Suma</option><option value="avg" ${aggregation === 'avg' ? 'selected' : ''}${disabledMetricOptions}>Media</option><option value="count" ${aggregation === 'count' ? 'selected' : ''}>Recuento</option></select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper}</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><span class="panel-note">${format(state.filtered.length, 0)} filas</span></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
 }
 
 function enhanceAnalyzeUI() {
@@ -189,12 +198,109 @@ function renderQuality() {
 
 function announce(message, kind = 'success') { const alert = document.querySelector('#app-alert'); if (alert) { alert.innerHTML = `<div class="alert alert-${kind}">${esc(message)}<button data-action="clear-alert">×</button></div>`; window.setTimeout(() => { if (alert) alert.innerHTML = ''; }, 6500); } }
 
+function setAIStatus(message, kind = 'idle') {
+  const label = document.querySelector('#ai-status');
+  const dot = document.querySelector('#ai-status-dot');
+  if (label) label.textContent = message;
+  if (dot) dot.dataset.state = kind;
+}
+
+async function detectLocalAI() {
+  const api = window.LanguageModel;
+  if (!api) { setAIStatus('IA local no disponible; análisis determinista activo', 'fallback'); return 'unavailable'; }
+  try {
+    const availability = await api.availability({ expectedInputs: [{ type: 'text', languages: ['es'] }], expectedOutputs: [{ type: 'text', languages: ['es'] }] });
+    state.aiAvailability = availability;
+    const labels = { available: 'Gemini Nano listo', downloadable: 'Gemini Nano disponible bajo demanda', downloading: 'Descargando modelo bajo demanda', unavailable: 'IA local no disponible' };
+    setAIStatus(labels[availability] || `Gemini Nano: ${availability}`, availability === 'available' ? 'ready' : availability === 'unavailable' ? 'fallback' : 'idle');
+    return availability;
+  } catch {
+    setAIStatus('IA local no disponible; análisis determinista activo', 'fallback');
+    return 'unavailable';
+  }
+}
+
+function compactDataProfile() {
+  const geo = coordinates();
+  const fields = state.columns.map(column => {
+    const values = state.rows.map(row => row[column.name]).filter(value => !isMissing(value));
+    const numeric = values.map(toNumber).filter(value => value !== null);
+    return { name: column.name, type: column.type, missing: state.rows.length - values.length, unique: new Set(values.map(String)).size, min: numeric.length ? Math.min(...numeric) : undefined, max: numeric.length ? Math.max(...numeric) : undefined };
+  });
+  return { dataset: state.datasetName, rows: state.rows.length, visibleRows: state.filtered.length, fields, coordinates: geo, sample: state.filtered.slice(0, 5).map(row => Object.fromEntries(state.columns.slice(0, 12).map(column => [column.name, row[column.name]]))) };
+}
+
+function deterministicInsights() {
+  const profile = compactDataProfile();
+  const totalCells = state.rows.length * state.columns.length;
+  const present = state.rows.reduce((sum, row) => sum + state.columns.filter(column => !isMissing(row[column.name])).length, 0);
+  const insights = [`${format(state.filtered.length, 0)} de ${format(state.rows.length, 0)} filas están visibles con los filtros actuales.`, `La completitud global es ${format(totalCells ? present / totalCells * 100 : 0, 1)}%.`];
+  const numeric = state.columns.filter(column => column.type === 'number');
+  numeric.slice(0, 3).forEach(column => {
+    const values = state.filtered.map(row => toNumber(row[column.name])).filter(value => value !== null);
+    if (values.length) insights.push(`${column.name}: media ${format(values.reduce((sum, value) => sum + value, 0) / values.length, 2)}, rango ${format(Math.min(...values), 2)}–${format(Math.max(...values), 2)}.`);
+  });
+  const text = state.columns.find(column => column.type === 'text');
+  if (text) {
+    const counts = new Map();
+    state.filtered.forEach(row => { const value = String(row[text.name] ?? 'Sin valor'); counts.set(value, (counts.get(value) || 0) + 1); });
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (top) insights.push(`La categoría más frecuente en ${text.name} es “${top[0]}” (${format(top[1], 0)} filas).`);
+  }
+  if (profile.coordinates.longitude && profile.coordinates.latitude) insights.push(`Se han detectado coordenadas ${profile.coordinates.longitude}/${profile.coordinates.latitude}; el mapa de puntos usa los valores WGS84 reales, sin enviar datos a un servidor.`);
+  return insights;
+}
+
+async function askLocalModel() {
+  const availability = state.aiAvailability || await detectLocalAI();
+  if (!['available', 'downloadable'].includes(availability)) throw new Error('Gemini Nano no está disponible en este navegador.');
+  const api = window.LanguageModel;
+  if (!state.aiSession) {
+    setAIStatus('Preparando Gemini Nano…', 'idle');
+    state.aiSession = await api.create({ expectedInputs: [{ type: 'text', languages: ['es'] }], expectedOutputs: [{ type: 'text', languages: ['es'] }], monitor(monitor) { monitor.addEventListener('downloadprogress', event => { setAIStatus(`Descargando Gemini Nano ${Math.round(event.loaded * 100)}%`, 'idle'); }); } });
+  }
+  const profile = compactDataProfile();
+  const prompt = `Actúa como analista de datos. Responde en español, con prudencia y sin inventar. Analiza este perfil local y propone hasta cinco acciones concretas de limpieza, métricas o visualizaciones. Si hay coordenadas, recomienda un mapa apropiado. No afirmes causalidad. Perfil: ${JSON.stringify(profile)}`;
+  const answer = await state.aiSession.prompt(prompt);
+  setAIStatus('Gemini Nano listo', 'ready');
+  return answer;
+}
+
+function applyRecommendedDashboard() {
+  state.dashboard = defaultDashboard();
+  state.activeTab = 'overview';
+  renderAll();
+  announce('Panel recomendado aplicado con KPIs, visual principal, mapa si hay coordenadas y tabla.');
+}
+
+function showAssistantModal() {
+  document.querySelector('#assistant-modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div id="assistant-modal" class="modal-backdrop"><div class="modal-card assistant-card" role="dialog" aria-modal="true" aria-labelledby="assistant-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Asistencia local</span><h2 id="assistant-title">Analista de tu conjunto</h2></div><button class="remove-card" data-modal-action="close" aria-label="Cerrar ventana">×</button></div><p class="helper">Los cálculos se ejecutan en este navegador. Gemini Nano solo se usa si Chrome lo ofrece; no se envían filas a un servidor.</p><div class="assistant-actions"><button class="button button-soft" data-modal-action="insights">Calcular resumen</button><button class="button button-ghost" data-modal-action="recommend">Aplicar panel recomendado</button><button class="button button-primary" data-modal-action="nano">Preguntar a Gemini Nano</button></div><div id="assistant-result" class="assistant-result" aria-live="polite"><span class="muted">Elige una acción para empezar.</span></div><div class="provenance"><strong>Privacidad y límites</strong><span>El asistente recibe solo un perfil compacto para interpretar el conjunto. Verifica siempre definiciones, unidades, proyección y calidad de los datos antes de publicar conclusiones.</span></div></div></div>`);
+  const modal = document.querySelector('#assistant-modal');
+  const previousFocus = document.activeElement;
+  const close = () => { modal?.remove(); previousFocus?.focus?.(); };
+  modal.addEventListener('click', event => { if (event.target === modal || event.target.closest('[data-modal-action="close"]')) close(); });
+  modal.querySelector('[data-modal-action="insights"]').addEventListener('click', () => { modal.querySelector('#assistant-result').innerHTML = `<ul class="assistant-list">${deterministicInsights().map(item => `<li>${esc(item)}</li>`).join('')}</ul>`; });
+  modal.querySelector('[data-modal-action="recommend"]').addEventListener('click', () => { close(); applyRecommendedDashboard(); });
+  modal.querySelector('[data-modal-action="nano"]').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    const result = modal.querySelector('#assistant-result');
+    button.disabled = true;
+    result.innerHTML = '<span class="muted">Comprobando compatibilidad y preparando el modelo…</span>';
+    try { result.innerHTML = `<div class="assistant-answer">${esc(await askLocalModel()).replace(/\n/g, '<br>')}</div>`; }
+    catch (error) { result.innerHTML = `<div class="alert alert-error">${esc(error.message)}<br><small>El resumen determinista sigue disponible y no requiere IA.</small></div>`; }
+    finally { button.disabled = false; }
+  });
+  modal.focus();
+}
+
 function init() {
   state.activeTab = initialTab;
   shellMarkup();
   state.dashboard = defaultDashboard();
   renderAll();
   bind();
+  detectLocalAI();
 }
 
 function download(name, content, mime = 'text/plain;charset=utf-8') {
@@ -350,6 +456,7 @@ function bind() {
     const actionNode = event.target.closest('[data-action]');
     if (!actionNode) return;
     const action = actionNode.dataset.action;
+    if (action === 'assistant') { showAssistantModal(); return; }
     if (action === 'add-chart') {
       state.dashboard.cards.push({ id: 'chart-' + Date.now(), type: 'chart', title: state.chartTitle?.trim() || state.yField + ' por ' + state.xField, chartType: state.chartType, xField: state.xField, yField: state.yField, aggregation: state.aggregation, chartSort: state.chartSort });
       announce('Visual añadido al dashboard.');
@@ -382,7 +489,7 @@ function bind() {
     if (event.target.matches('[data-filter-kind]')) updateFilter(event.target);
     if (event.target.id === 'x-field') { state.xField = event.target.value; renderAll(); }
     if (event.target.id === 'y-field') { state.yField = event.target.value; renderAll(); }
-    if (event.target.id === 'chart-type') { state.chartType = event.target.value; renderAll(); }
+    if (event.target.id === 'chart-type') { state.chartType = CHART_TYPES.includes(event.target.value) ? event.target.value : 'bar'; if (['map', 'bubble-map'].includes(state.chartType)) { const geo = coordinates(); state.xField = geo.longitude || state.xField; state.yField = geo.latitude || state.yField; state.aggregation = 'count'; } renderAll(); }
     if (event.target.id === 'aggregation') { state.aggregation = event.target.value; renderAll(); }
     if (event.target.id === 'chart-sort') { state.chartSort = ['original', 'value-desc', 'value-asc'].includes(event.target.value) ? event.target.value : 'original'; renderAll(); }
     if (event.target.id === 'chart-title') { state.chartTitle = event.target.value.trim() || 'Visualización principal'; renderAll(); }
