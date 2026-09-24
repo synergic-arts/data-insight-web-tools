@@ -230,6 +230,41 @@ function densityMapChart(rows, longitudeField, latitudeField) {
   return chartFrame(`<g class="map-grid">${marks}</g><text class="chart-axis-title" x="62" y="20">Densidad por cuadrícula · ${points.length} coordenadas WGS84</text><text class="chart-axis-label" x="74" y="296">${format(minLon, 4)}°</text><text class="chart-axis-label" x="774" y="296" text-anchor="end">${format(maxLon, 4)}°</text><text class="chart-axis-label" x="58" y="40" text-anchor="end">${format(maxLat, 4)}°</text><text class="chart-axis-label" x="58" y="274" text-anchor="end">${format(minLat, 4)}°</text>`, 'Mapa de densidad por cuadrícula');
 }
 
+function heatmapChart(rows, xField, yField) {
+  const points = rows.map(row => ({ x: toNumber(row[xField]), y: toNumber(row[yField]) })).filter(point => point.x !== null && point.y !== null).slice(0, 2500);
+  if (!points.length) return emptyChart('Selecciona dos campos numéricos para calcular el mapa de calor');
+  const minX = Math.min(...points.map(point => point.x));
+  const maxX = Math.max(...points.map(point => point.x));
+  const minY = Math.min(...points.map(point => point.y));
+  const maxY = Math.max(...points.map(point => point.y));
+  const spanX = maxX - minX || 1;
+  const spanY = maxY - minY || 1;
+  const columns = 8;
+  const rowsCount = 6;
+  const bins = Array.from({ length: rowsCount }, () => Array.from({ length: columns }, () => 0));
+  points.forEach(point => {
+    const column = Math.min(columns - 1, Math.max(0, Math.floor((point.x - minX) / spanX * columns)));
+    const row = Math.min(rowsCount - 1, Math.max(0, rowsCount - 1 - Math.floor((point.y - minY) / spanY * rowsCount)));
+    bins[row][column] += 1;
+  });
+  const peak = Math.max(...bins.flat(), 1);
+  const palette = ['#d8ecfa', '#a9d4f0', '#70b9df', '#398fc4', '#1f6598', '#14466f'];
+  const cellWidth = 700 / columns;
+  const cellHeight = 220 / rowsCount;
+  const marks = bins.flatMap((row, rowIndex) => row.map((count, columnIndex) => {
+    if (!count) return '';
+    const intensity = Math.min(palette.length - 1, Math.ceil(count / peak * palette.length) - 1);
+    const x = 74 + columnIndex * cellWidth;
+    const y = 34 + rowIndex * cellHeight;
+    const xA = minX + columnIndex / columns * spanX;
+    const xB = minX + (columnIndex + 1) / columns * spanX;
+    const yB = maxY - rowIndex / rowsCount * spanY;
+    const yA = maxY - (rowIndex + 1) / rowsCount * spanY;
+    return `<rect class="heatmap-cell" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, cellWidth - 1).toFixed(1)}" height="${Math.max(1, cellHeight - 1).toFixed(1)}" rx="4" fill="${palette[intensity]}"><title>${format(count, 0)} registros · ${esc(xField)} ${format(xA, 2)}–${format(xB, 2)} · ${esc(yField)} ${format(yA, 2)}–${format(yB, 2)}</title></rect>`;
+  })).join('');
+  return chartFrame(`<g class="map-grid">${marks}</g><text class="chart-axis-title" x="62" y="20">Mapa de calor bivariado · recuento por celda</text><text class="chart-axis-label" x="74" y="296">${format(minX, 2)}</text><text class="chart-axis-label" x="774" y="296" text-anchor="end">${format(maxX, 2)}</text><text class="chart-axis-label" x="58" y="40" text-anchor="end">${format(maxY, 2)}</text><text class="chart-axis-label" x="58" y="274" text-anchor="end">${format(minY, 2)}</text>`, `${xField} y ${yField} · mapa de calor`);
+}
+
 export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original') {
   if (type === 'line') return signedLineChart(rows, xField, yField, aggregation, ordering);
   if (type === 'area') return areaChart(rows, xField, yField, aggregation, ordering);
@@ -240,6 +275,7 @@ export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'or
   if (type === 'map') return mapChart(rows, xField, yField);
   if (type === 'bubble-map') return mapChart(rows, xField, yField, true);
   if (type === 'density-map') return densityMapChart(rows, xField, yField);
+  if (type === 'heatmap') return heatmapChart(rows, xField, yField);
   return signedBarChart(rows, xField, yField, aggregation, ordering);
 }
 

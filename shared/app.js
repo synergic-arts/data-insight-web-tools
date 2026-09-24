@@ -5,11 +5,12 @@ const root = document.body;
 const mode = root.dataset.mode || 'dashboard';
 const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'analyze' : 'overview';
 const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
-const CHART_TYPES = ['bar', 'line', 'area', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map'];
-const CHART_LABELS = { bar: 'Barras', line: 'Línea', area: 'Área', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula' };
+const CHART_TYPES = ['bar', 'line', 'area', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'heatmap'];
+const CHART_LABELS = { bar: 'Barras', line: 'Línea', area: 'Área', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', heatmap: 'Mapa de calor bivariado' };
 const AGGREGATIONS = ['sum', 'avg', 'count'];
 const SORT_MODES = ['original', 'value-desc', 'value-asc'];
 const numericColumns = () => state.columns.filter(column => column.type === 'number');
+const analysisNumericColumns = () => numericColumns().filter(column => !/^(id|_row_id|year|año)$/i.test(column.name));
 const metricField = () => { const all = numericColumns(); const preferred = all.find(column => /find|count|total|value|amount|score|area|metric/i.test(column.name) && !/^(id|_row_id|latitude|longitude)$/i.test(column.name)); return preferred?.name || all.find(column => !/^(id|_row_id|latitude|longitude)$/i.test(column.name))?.name || all[0]?.name || ''; };
 const hasColumn = (name, type = '') => typeof name === 'string' && state.columns.some(column => column.name === name && (!type || column.type === type));
 const safeTab = tab => TAB_IDS.includes(tab) ? tab : 'overview';
@@ -52,13 +53,19 @@ function defaultDashboard() {
   const dimension = state.columns.find(column => column.type === 'text')?.name || state.xField || state.columns[0]?.name || '';
   const aggregation = numeric ? 'sum' : 'count';
   const geo = coordinates();
+  const temporal = state.columns.find(column => column.type === 'date' || /^(year|año|date|fecha|time|period|periodo)$/i.test(column.name));
+  const analysisNumbers = analysisNumericColumns().filter(column => !/^(latitude|longitude)$/i.test(column.name));
   const cards = [
     { id: 'kpi-rows', type: 'kpi', metric: 'rows' }
   ];
   if (numeric) cards.push({ id: 'kpi-sum', type: 'kpi', metric: 'sum', field: numeric });
+  if (numeric) cards.push({ id: 'kpi-avg', type: 'kpi', metric: 'avg', field: numeric });
   cards.push({ id: 'kpi-complete', type: 'kpi', metric: 'complete' });
   if (dimension) cards.push({ id: 'chart-main', type: 'chart', title: 'Distribución principal', chartType: 'bar', xField: dimension, yField: numeric || dimension, aggregation });
+  if (temporal && numeric) cards.push({ id: 'chart-trend', type: 'chart', title: 'Evolución temporal', chartType: 'line', xField: temporal.name, yField: numeric, aggregation: 'sum', chartSort: 'original' });
+  if (analysisNumbers.length >= 2) cards.push({ id: 'chart-relation', type: 'chart', title: 'Relación entre métricas', chartType: 'scatter', xField: analysisNumbers[0].name, yField: analysisNumbers[1].name, aggregation: 'sum' });
   if (geo.longitude && geo.latitude) cards.push({ id: 'map-main', type: 'chart', title: 'Distribución espacial', chartType: 'map', xField: geo.longitude, yField: geo.latitude, aggregation: 'count' });
+  if (geo.longitude && geo.latitude) cards.push({ id: 'density-main', type: 'chart', title: 'Concentración espacial', chartType: 'density-map', xField: geo.longitude, yField: geo.latitude, aggregation: 'count' });
   cards.push({ id: 'table-main', type: 'table', title: 'Registros filtrados' });
   return {
     cards
@@ -168,7 +175,7 @@ function renderAnalyze() {
   if (state.aggregation !== aggregation) state.aggregation = aggregation;
   const disabledMetricOptions = hasMetric ? '' : ' disabled';
   const geo = coordinates();
-  const helper = hasMetric ? `Los gráficos se calculan en memoria con las filas filtradas. ${geo.longitude && geo.latitude ? `Se detectan coordenadas ${geo.longitude}/${geo.latitude}; prueba un mapa de puntos, burbujas o densidad.` : 'Puedes cargar un GeoJSON o campos lon/lat para activar el mapa.'}` : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
+  const helper = hasMetric ? `Los gráficos se calculan en memoria con las filas filtradas. ${geo.longitude && geo.latitude ? `Se detectan coordenadas ${geo.longitude}/${geo.latitude}; prueba un mapa de puntos, burbujas o densidad.` : 'Puedes cargar un GeoJSON o campos lon/lat para activar el mapa.'} ${analysisNumericColumns().length > 1 ? 'El mapa de calor compara dos campos numéricos.' : ''}` : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
   const previewTitle = state.chartTitle || `${state.yField} por ${state.xField}`;
   const chartOptions = Object.entries(CHART_LABELS).map(([value, label]) => `<option value="${value}" ${state.chartType === value ? 'selected' : ''}>${label}</option>`).join('');
   return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Agregación<select id="aggregation"><option value="sum" ${aggregation === 'sum' ? 'selected' : ''}${disabledMetricOptions}>Suma</option><option value="avg" ${aggregation === 'avg' ? 'selected' : ''}${disabledMetricOptions}>Media</option><option value="count" ${aggregation === 'count' ? 'selected' : ''}>Recuento</option></select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper}</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><div class="panel-heading-actions"><span class="panel-note">${format(state.filtered.length, 0)} filas</span><button class="button button-ghost" data-action="export-svg">Exportar SVG</button></div></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
@@ -235,11 +242,40 @@ function deterministicInsights() {
   const totalCells = state.rows.length * state.columns.length;
   const present = state.rows.reduce((sum, row) => sum + state.columns.filter(column => !isMissing(row[column.name])).length, 0);
   const insights = [`${format(state.filtered.length, 0)} de ${format(state.rows.length, 0)} filas están visibles con los filtros actuales.`, `La completitud global es ${format(totalCells ? present / totalCells * 100 : 0, 1)}%.`];
-  const numeric = state.columns.filter(column => column.type === 'number');
+  const missingFields = state.columns.map(column => ({ name: column.name, count: state.rows.filter(row => isMissing(row[column.name])).length })).filter(item => item.count).sort((a, b) => b.count - a.count);
+  if (missingFields.length) insights.push(`Los campos con más vacíos son ${missingFields.slice(0, 3).map(item => `${item.name} (${format(item.count, 0)})`).join(', ')}.`);
+  const numeric = analysisNumericColumns();
   numeric.slice(0, 3).forEach(column => {
     const values = state.filtered.map(row => toNumber(row[column.name])).filter(value => value !== null);
-    if (values.length) insights.push(`${column.name}: media ${format(values.reduce((sum, value) => sum + value, 0) / values.length, 2)}, rango ${format(Math.min(...values), 2)}–${format(Math.max(...values), 2)}.`);
+    if (values.length) {
+      const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+      insights.push(`${column.name}: media ${format(mean, 2)}, rango ${format(Math.min(...values), 2)}–${format(Math.max(...values), 2)}.`);
+      const sorted = [...values].sort((a, b) => a - b);
+      const q1 = sorted[Math.floor((sorted.length - 1) * .25)];
+      const q3 = sorted[Math.floor((sorted.length - 1) * .75)];
+      const iqr = q3 - q1;
+      const outliers = iqr ? values.filter(value => value < q1 - 1.5 * iqr || value > q3 + 1.5 * iqr).length : 0;
+      if (outliers) insights.push(`${column.name}: ${format(outliers, 0)} posibles valores atípicos según el rango intercuartílico; revísalos antes de agregarlos.`);
+    }
   });
+  const temporal = state.columns.find(column => column.type === 'date' || /^(year|año|date|fecha|time|period|periodo)$/i.test(column.name));
+  const temporalMetric = numeric[0];
+  if (temporal && temporalMetric) {
+    const timeline = new Map();
+    state.filtered.forEach(row => { const key = String(row[temporal.name] ?? ''); const value = toNumber(row[temporalMetric.name]); if (key && value !== null) timeline.set(key, (timeline.get(key) || 0) + value); });
+    const ordered = [...timeline.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0]), 'es', { numeric: true }));
+    if (ordered.length >= 2) { const first = ordered[0][1]; const last = ordered[ordered.length - 1][1]; const change = first ? (last - first) / Math.abs(first) * 100 : null; insights.push(`La evolución de ${temporalMetric.name} entre ${ordered[0][0]} y ${ordered[ordered.length - 1][0]} ${change === null ? 'no permite calcular variación porcentual' : `cambia ${format(change, 1)}%`}.`); }
+  }
+  if (numeric.length >= 2) {
+    const pairs = state.filtered.map(row => [toNumber(row[numeric[0].name]), toNumber(row[numeric[1].name])]).filter(pair => pair.every(value => value !== null));
+    if (pairs.length >= 3) {
+      const meanX = pairs.reduce((sum, pair) => sum + pair[0], 0) / pairs.length;
+      const meanY = pairs.reduce((sum, pair) => sum + pair[1], 0) / pairs.length;
+      const numerator = pairs.reduce((sum, pair) => sum + (pair[0] - meanX) * (pair[1] - meanY), 0);
+      const denominator = Math.sqrt(pairs.reduce((sum, pair) => sum + (pair[0] - meanX) ** 2, 0) * pairs.reduce((sum, pair) => sum + (pair[1] - meanY) ** 2, 0));
+      if (denominator) insights.push(`La correlación lineal entre ${numeric[0].name} y ${numeric[1].name} es ${format(numerator / denominator, 2)}; describe asociación, no causalidad.`);
+    }
+  }
   const text = state.columns.find(column => column.type === 'text');
   if (text) {
     const counts = new Map();
@@ -247,7 +283,9 @@ function deterministicInsights() {
     const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
     if (top) insights.push(`La categoría más frecuente en ${text.name} es “${top[0]}” (${format(top[1], 0)} filas).`);
   }
-  if (profile.coordinates.longitude && profile.coordinates.latitude) insights.push(`Se han detectado coordenadas ${profile.coordinates.longitude}/${profile.coordinates.latitude}; el mapa de puntos usa los valores WGS84 reales, sin enviar datos a un servidor.`);
+  if (profile.coordinates.longitude && profile.coordinates.latitude) insights.push(`Se han detectado coordenadas ${profile.coordinates.longitude}/${profile.coordinates.latitude}; el panel automático incluye puntos y densidad WGS84, sin enviar datos a un servidor.`);
+  if (temporal && temporalMetric) insights.push(`Recomendación: usa ${temporal.name} como eje temporal y ${temporalMetric.name} como métrica; el panel automático ya prepara esa evolución.`);
+  if (numeric.length >= 2) insights.push(`Recomendación: compara ${numeric[0].name} y ${numeric[1].name} con dispersión y revisa los posibles atípicos antes de interpretar.`);
   return insights;
 }
 
@@ -270,12 +308,12 @@ function applyRecommendedDashboard() {
   state.dashboard = defaultDashboard();
   state.activeTab = 'overview';
   renderAll();
-  announce('Panel recomendado aplicado con KPIs, visual principal, mapa si hay coordenadas y tabla.');
+  announce('Análisis automático aplicado con KPIs, tendencia, relación entre métricas, mapas y tabla según los campos detectados.');
 }
 
 function showAssistantModal() {
   document.querySelector('#assistant-modal')?.remove();
-  document.body.insertAdjacentHTML('beforeend', `<div id="assistant-modal" class="modal-backdrop"><div class="modal-card assistant-card" role="dialog" aria-modal="true" aria-labelledby="assistant-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Asistencia local</span><h2 id="assistant-title">Analista de tu conjunto</h2></div><button class="remove-card" data-modal-action="close" aria-label="Cerrar ventana">×</button></div><p class="helper">Los cálculos se ejecutan en este navegador. Gemini Nano solo se usa si Chrome lo ofrece; no se envían filas a un servidor.</p><div class="assistant-actions"><button class="button button-soft" data-modal-action="insights">Calcular resumen</button><button class="button button-ghost" data-modal-action="recommend">Aplicar panel recomendado</button><button class="button button-primary" data-modal-action="nano">Preguntar a Gemini Nano</button></div><div id="assistant-result" class="assistant-result" aria-live="polite"><span class="muted">Elige una acción para empezar.</span></div><div class="provenance"><strong>Privacidad y límites</strong><span>El asistente recibe solo un perfil compacto para interpretar el conjunto. Verifica siempre definiciones, unidades, proyección y calidad de los datos antes de publicar conclusiones.</span></div></div></div>`);
+  document.body.insertAdjacentHTML('beforeend', `<div id="assistant-modal" class="modal-backdrop"><div class="modal-card assistant-card" role="dialog" aria-modal="true" aria-labelledby="assistant-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Asistencia local</span><h2 id="assistant-title">Analista de tu conjunto</h2></div><button class="remove-card" data-modal-action="close" aria-label="Cerrar ventana">×</button></div><p class="helper">Los cálculos se ejecutan en este navegador. Gemini Nano solo se usa si Chrome lo ofrece; no se envían filas a un servidor.</p><div class="assistant-actions"><button class="button button-soft" data-modal-action="insights">Calcular resumen completo</button><button class="button button-ghost" data-modal-action="recommend">Montar análisis automático</button><button class="button button-primary" data-modal-action="nano">Preguntar a Gemini Nano</button></div><div id="assistant-result" class="assistant-result" aria-live="polite"><span class="muted">Elige una acción para empezar.</span></div><div class="provenance"><strong>Privacidad y límites</strong><span>El asistente recibe solo un perfil compacto para interpretar el conjunto. Verifica siempre definiciones, unidades, proyección y calidad de los datos antes de publicar conclusiones.</span></div></div></div>`);
   const modal = document.querySelector('#assistant-modal');
   const previousFocus = document.activeElement;
   const close = () => { modal?.remove(); previousFocus?.focus?.(); };
@@ -500,7 +538,7 @@ function bind() {
     if (event.target.matches('[data-filter-kind]')) updateFilter(event.target);
     if (event.target.id === 'x-field') { state.xField = event.target.value; renderAll(); }
     if (event.target.id === 'y-field') { state.yField = event.target.value; renderAll(); }
-    if (event.target.id === 'chart-type') { state.chartType = CHART_TYPES.includes(event.target.value) ? event.target.value : 'bar'; if (['map', 'bubble-map', 'density-map'].includes(state.chartType)) { const geo = coordinates(); state.xField = geo.longitude || state.xField; state.yField = geo.latitude || state.yField; state.aggregation = 'count'; } renderAll(); }
+    if (event.target.id === 'chart-type') { state.chartType = CHART_TYPES.includes(event.target.value) ? event.target.value : 'bar'; if (['map', 'bubble-map', 'density-map'].includes(state.chartType)) { const geo = coordinates(); state.xField = geo.longitude || state.xField; state.yField = geo.latitude || state.yField; state.aggregation = 'count'; } if (state.chartType === 'heatmap') { const numbers = analysisNumericColumns(); state.xField = numbers[0]?.name || state.xField; state.yField = numbers[1]?.name || numbers[0]?.name || state.yField; state.aggregation = 'count'; } renderAll(); }
     if (event.target.id === 'aggregation') { state.aggregation = event.target.value; renderAll(); }
     if (event.target.id === 'chart-sort') { state.chartSort = ['original', 'value-desc', 'value-asc'].includes(event.target.value) ? event.target.value : 'original'; renderAll(); }
     if (event.target.id === 'chart-title') { state.chartTitle = event.target.value.trim() || 'Visualización principal'; renderAll(); }
