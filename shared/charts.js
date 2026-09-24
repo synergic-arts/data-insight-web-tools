@@ -1,4 +1,4 @@
-import { state, esc, format, toNumber } from './data.js';
+import { state, esc, format, toNumber, isMissing } from './data.js';
 
 const COLORS = ['#67e8f9', '#a78bfa', '#fbbf24', '#34d399', '#fb7185', '#60a5fa', '#c084fc', '#2dd4bf', '#f97316', '#f472b6'];
 
@@ -16,10 +16,10 @@ function groupRows(rows, xField, yField, aggregation) {
   return [...groups.entries()].slice(0, 24).map(([label, items]) => {
     const numbers = items.map(item => toNumber(item[yField])).filter(value => value !== null);
     let value = items.length;
-    if (aggregation === 'sum') value = numbers.reduce((total, item) => total + item, 0);
-    if (aggregation === 'avg') value = numbers.length ? numbers.reduce((total, item) => total + item, 0) / numbers.length : 0;
-    return { label, value: Number(value) || 0, count: items.length };
-  });
+    if (aggregation === 'sum') value = numbers.length ? numbers.reduce((total, item) => total + item, 0) : null;
+    if (aggregation === 'avg') value = numbers.length ? numbers.reduce((total, item) => total + item, 0) / numbers.length : null;
+    return { label, value: value === null ? null : Number(value), count: items.length, hasValue: aggregation === 'count' || numbers.length > 0 };
+  }).filter(item => item.hasValue);
 }
 
 function axisLabel(value) {
@@ -114,5 +114,17 @@ export function chartSVG(type, rows, xField, yField, aggregation) {
 export function tableHTML(rows, columns, limit = 12) {
   if (!rows.length) return `<div class="empty-state"><strong>No hay filas que mostrar</strong><span>Revisa los filtros o importa un archivo.</span></div>`;
   const visible = columns.slice(0, 12);
-  return `<div class="table-scroll"><table><thead><tr>${visible.map(column => `<th>${esc(column.name)}<small>${esc(column.type)}</small></th>`).join('')}</tr></thead><tbody>${rows.slice(0, limit).map(row => `<tr>${visible.map(column => `<td>${esc(row[column.name] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${rows.length > limit ? `<p class="table-note">Mostrando ${limit} de ${format(rows.length, 0)} filas filtradas.</p>` : ''}`;
+  const ordered = state.sortKey && visible.some(column => column.name === state.sortKey) ? [...rows].sort((left, right) => {
+    const a = left[state.sortKey];
+    const b = right[state.sortKey];
+    if (isMissing(a) && isMissing(b)) return 0;
+    if (isMissing(a)) return 1;
+    if (isMissing(b)) return -1;
+    const na = toNumber(a);
+    const nb = toNumber(b);
+    const result = na !== null && nb !== null ? na - nb : String(a).localeCompare(String(b), 'es', { numeric: true, sensitivity: 'base' });
+    return state.sortDir === 'desc' ? -result : result;
+  }) : rows;
+  const shown = Math.min(limit, state.tableLimit, ordered.length);
+  return `<div class="table-scroll"><table><thead><tr>${visible.map(column => `<th><button class="sort-button" data-sort-key="${esc(column.name)}" title="Ordenar por ${esc(column.name)}">${esc(column.name)} <span>${state.sortKey === column.name ? state.sortDir === 'asc' ? '↑' : '↓' : '↕'}</span></button><small>${esc(column.type)}</small></th>`).join('')}</tr></thead><tbody>${ordered.slice(0, shown).map(row => `<tr>${visible.map(column => `<td>${esc(row[column.name] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${ordered.length > shown ? `<div class="table-note table-more-row"><span>Mostrando ${format(shown, 0)} de ${format(ordered.length, 0)} filas.</span><button class="button button-ghost" data-action="show-more">Mostrar más</button></div>` : ordered.length ? `<p class="table-note">${format(ordered.length, 0)} filas visibles.</p>` : ''}`;
 }

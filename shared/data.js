@@ -31,6 +31,9 @@ export const state = {
   yField: 'finds',
   chartType: 'bar',
   aggregation: 'sum',
+  sortKey: '',
+  sortDir: 'asc',
+  tableLimit: 20,
   dashboard: { cards: [] }
 };
 
@@ -41,9 +44,17 @@ export function esc(value) {
 export function toNumber(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (value === null || value === undefined || String(value).trim() === '') return null;
-  const normalized = String(value).trim().replace(/\s/g, '').replace(',', '.');
+  let normalized = String(value).trim().replace(/[\s\u00a0]/g, '');
+  const comma = normalized.lastIndexOf(',');
+  const dot = normalized.lastIndexOf('.');
+  if (comma >= 0 && dot >= 0) normalized = comma > dot ? normalized.replace(/\./g, '').replace(',', '.') : normalized.replace(/,/g, '');
+  else if (comma >= 0) normalized = normalized.replace(',', '.');
   const number = Number(normalized);
   return Number.isFinite(number) ? number : null;
+}
+
+export function isMissing(value) {
+  return value === null || value === undefined || String(value).trim() === '';
 }
 
 export function format(value, digits = 1) {
@@ -86,32 +97,38 @@ export function applyFilters() {
   return state.filtered;
 }
 
-function parseCSVLine(line, separator) {
-  const result = [];
-  let current = '';
-  let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    if (char === '"' && line[index + 1] === '"' && quoted) { current += '"'; index += 1; continue; }
-    if (char === '"') { quoted = !quoted; continue; }
-    if (char === separator && !quoted) { result.push(current.trim()); current = ''; continue; }
-    current += char;
-  }
-  result.push(current.trim());
-  return result;
-}
-
 export function parseDelimited(text) {
-  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim());
-  if (!lines.length) return [];
-  const header = lines[0];
+  const source = text.replace(/^\uFEFF/, '');
   const separators = ['\t', ';', ','];
-  const separator = separators.sort((a, b) => header.split(b).length - header.split(a).length)[0];
-  const keys = parseCSVLine(header, separator).map((key, index) => key || `campo_${index + 1}`);
-  return lines.slice(1).map(line => {
-    const values = parseCSVLine(line, separator);
-    return Object.fromEntries(keys.map((key, index) => [key, values[index] ?? '']));
+  const firstLine = source.split(/\r?\n/, 1)[0] || '';
+  const separator = separators.sort((a, b) => firstLine.split(b).length - firstLine.split(a).length)[0];
+  const records = [];
+  let record = [];
+  let field = '';
+  let quoted = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '"' && source[index + 1] === '"' && quoted) { field += '"'; index += 1; continue; }
+    if (char === '"') { quoted = !quoted; continue; }
+    if (char === separator && !quoted) { record.push(field.trim()); field = ''; continue; }
+    if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && source[index + 1] === '\n') index += 1;
+      record.push(field.trim());
+      if (record.some(value => value !== '')) records.push(record);
+      record = []; field = ''; continue;
+    }
+    field += char;
+  }
+  if (field !== '' || record.length) { record.push(field.trim()); if (record.some(value => value !== '')) records.push(record); }
+  if (!records.length) return [];
+  const seen = new Map();
+  const keys = records[0].map((key, index) => {
+    const base = key || `campo_${index + 1}`;
+    const count = (seen.get(base) || 0) + 1;
+    seen.set(base, count);
+    return count === 1 ? base : `${base}_${count}`;
   });
+  return records.slice(1).map(values => Object.fromEntries(keys.map((key, index) => [key, values[index] ?? ''])));
 }
 
 export function parseAny(text, fileName = '') {
@@ -123,13 +140,23 @@ export function parseAny(text, fileName = '') {
         return parsed.features.map((feature, index) => {
           const properties = { ...(feature.properties || {}), feature_id: feature.id ?? index + 1 };
           const coordinates = feature.geometry?.coordinates;
-          if (feature.geometry?.type === 'Point' && Array.isArray(coordinates)) {
-            properties.longitude = coordinates[0];
-            properties.latitude = coordinates[1];
+          if (Array.isArray(coordinates)) {
+            const pairs = [];
+            const collect = value => { if (Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'number') pairs.push(value); else if (Array.isArray(value)) value.forEach(collect); };
+            collect(coordinates);
+            if (pairs.length) {
+              const longitudes = pairs.map(pair => pair[0]);
+              const latitudes = pairs.map(pair => pair[1]);
+              properties.longitude = (Math.min(...longitudes) + Math.max(...longitudes)) / 2;
+              properties.latitude = (Math.min(...latitudes) + Math.max(...latitudes)) / 2;
+            }
           }
+          properties.geometry_type = feature.geometry?.type || '';
           return properties;
         });
       }
+      if (Array.isArray(parsed.rows)) return parsed.rows;
+      if (Array.isArray(parsed.data)) return parsed.data;
       if (Array.isArray(parsed)) return parsed;
       if (parsed && typeof parsed === 'object') return [parsed];
     } catch { /* Fallback to delimited text when JSON is incomplete. */ }
@@ -138,12 +165,15 @@ export function parseAny(text, fileName = '') {
 }
 
 export function loadRows(rows, meta = {}) {
-  state.rows = rows.map((row, index) => ({ ...row, _row_id: row._row_id ?? index + 1 }));
+  state.rows = rows.map(row => ({ ...row }));
   state.datasetName = meta.name || state.datasetName;
   state.sourceKind = meta.kind || 'local';
   state.sourceDetail = meta.detail || 'Archivo cargado localmente en este navegador.';
   state.filters = {};
   state.search = '';
+  state.sortKey = '';
+  state.sortDir = 'asc';
+  state.tableLimit = 20;
   rebuildColumns();
   applyFilters();
 }

@@ -1,4 +1,4 @@
-import { DEMO_ROWS, state, esc, format, toNumber, inferType, parseAny, loadRows, rebuildColumns, applyFilters } from './data.js';
+import { DEMO_ROWS, state, esc, format, toNumber, isMissing, parseAny, loadRows, rebuildColumns, applyFilters } from './data.js';
 import { chartSVG, tableHTML } from './charts.js';
 
 const root = document.body;
@@ -23,7 +23,7 @@ function defaultDashboard() {
 
 function shellMarkup() {
   root.innerHTML = `<div class="app-shell">
-    <header class="appbar"><a class="brand" href="../" aria-label="Data Insight Web Tools"><span class="brand-mark">DI</span><span><strong>Data Insight</strong><small>local analytics studio</small></span></a><div class="appbar-actions"><button class="icon-button" data-action="fullscreen" title="Pantalla completa">⛶</button><button class="button button-ghost" data-action="save">Guardar proyecto</button><button class="button button-primary" data-action="export">Exportar CSV</button></div></header>
+    <header class="appbar"><a class="brand" href="../" aria-label="Data Insight Web Tools"><span class="brand-mark">DI</span><span><strong>Data Insight</strong><small>local analytics studio</small></span></a><div class="appbar-actions"><button class="icon-button" data-action="fullscreen" title="Pantalla completa" aria-label="Pantalla completa">⛶</button><button class="button button-ghost" data-action="save">Guardar proyecto</button><button class="button button-primary" data-action="export">Exportar CSV</button></div></header>
     <div class="app-layout">
       <aside class="sidebar"><div class="sidebar-heading"><span class="eyebrow">Espacio de trabajo</span><h2>Explora tus datos</h2></div><div class="dataset-card"><span class="status-dot"></span><strong id="dataset-name">Cargando…</strong><small id="dataset-meta"></small><span id="dataset-kind" class="badge"></span></div>
         <nav class="side-nav" aria-label="Secciones"><button data-tab="overview">▦ <span>Dashboard</span></button><button data-tab="prepare">⌘ <span>Preparar datos</span></button><button data-tab="analyze">◒ <span>Analizar</span></button><button data-tab="quality">✓ <span>Calidad</span></button></nav>
@@ -76,22 +76,26 @@ function renderKpi(metric, field) {
   let value = rows.length;
   let label = 'Filas filtradas';
   let detail = `${format(state.rows.length, 0)} en el conjunto total`;
-  if (metric === 'sum') { value = rows.map(row => toNumber(row[field])).filter(value => value !== null).reduce((sum, item) => sum + item, 0); label = `Total de ${field}`; detail = 'Suma de los valores visibles'; }
-  if (metric === 'avg') { const values = rows.map(row => toNumber(row[field])).filter(value => value !== null); value = values.length ? values.reduce((sum, item) => sum + item, 0) / values.length : 0; label = `Media de ${field}`; detail = 'Media de los valores visibles'; }
-  if (metric === 'complete') { const cells = rows.length * state.columns.length; const present = rows.reduce((sum, row) => sum + state.columns.filter(column => row[column.name] !== null && row[column.name] !== undefined && String(row[column.name]).trim() !== '').length, 0); value = cells ? present / cells * 100 : 0; label = 'Completitud'; detail = 'Celdas con valor'; return `<div class="kpi-value">${format(value, 1)}<small>%</small></div><div class="kpi-label">${label}</div><div class="kpi-detail">${detail}</div>`; }
+  if (metric === 'sum') { const values = rows.map(row => toNumber(row[field])).filter(value => value !== null); value = values.length ? values.reduce((sum, item) => sum + item, 0) : null; label = `Total de ${field}`; detail = values.length ? 'Suma de los valores visibles' : 'No hay valores numéricos visibles'; }
+  if (metric === 'avg') { const values = rows.map(row => toNumber(row[field])).filter(value => value !== null); value = values.length ? values.reduce((sum, item) => sum + item, 0) / values.length : null; label = `Media de ${field}`; detail = values.length ? 'Media de los valores visibles' : 'No hay valores numéricos visibles'; }
+  if (metric === 'complete') { const cells = rows.length * state.columns.length; const present = rows.reduce((sum, row) => sum + state.columns.filter(column => !isMissing(row[column.name])).length, 0); value = cells ? present / cells * 100 : null; label = 'Completitud'; detail = cells ? 'Celdas con valor' : 'No hay filas visibles'; return `<div class="kpi-value">${format(value, 1)}${value === null ? '' : '<small>%</small>'}</div><div class="kpi-label">${label}</div><div class="kpi-detail">${detail}</div>`; }
   return `<div class="kpi-value">${format(value, metric === 'avg' ? 1 : 0)}</div><div class="kpi-label">${esc(label)}</div><div class="kpi-detail">${esc(detail)}</div>`;
+}
+
+function cardActions(card) {
+  return `<div class="card-actions"><button class="card-action" data-action="edit-card" data-id="${esc(card.id)}" title="Renombrar tarjeta" aria-label="Renombrar tarjeta">✎</button><button class="card-action" data-action="duplicate-card" data-id="${esc(card.id)}" title="Duplicar tarjeta" aria-label="Duplicar tarjeta">⧉</button><button class="card-action" data-action="remove-card" data-id="${esc(card.id)}" title="Quitar tarjeta" aria-label="Quitar tarjeta">×</button></div>`;
 }
 
 function cardHTML(card) {
   if (card.type === 'kpi') return `<article class="kpi-card"><div class="kpi-icon">${card.metric === 'complete' ? '◒' : card.metric === 'rows' ? '▤' : 'Σ'}</div>${renderKpi(card.metric, card.field)}</article>`;
-  if (card.type === 'table') return `<article class="panel dashboard-card card-table"><div class="panel-heading"><div><span class="eyebrow">Tabla</span><h3>${esc(card.title || 'Registros')}</h3></div><button class="remove-card" data-action="remove-card" data-id="${esc(card.id)}" title="Quitar tarjeta">×</button></div>${tableHTML(state.filtered, state.columns, 8)}</article>`;
-  return `<article class="panel dashboard-card card-chart"><div class="panel-heading"><div><span class="eyebrow">Visual</span><h3>${esc(card.title || 'Visualización')}</h3></div><button class="remove-card" data-action="remove-card" data-id="${esc(card.id)}" title="Quitar tarjeta">×</button></div><div class="chart-wrap">${chartSVG(card.chartType || 'bar', state.filtered, card.xField || state.xField, card.yField || state.yField, card.aggregation || 'sum')}</div></article>`;
+  if (card.type === 'table') return `<article class="panel dashboard-card card-table"><div class="panel-heading"><div><span class="eyebrow">Tabla</span><h3>${esc(card.title || 'Registros')}</h3></div>${cardActions(card)}</div>${tableHTML(state.filtered, state.columns, 8)}</article>`;
+  return `<article class="panel dashboard-card card-chart"><div class="panel-heading"><div><span class="eyebrow">Visual</span><h3>${esc(card.title || 'Visualización')}</h3></div>${cardActions(card)}</div><div class="chart-wrap">${chartSVG(card.chartType || 'bar', state.filtered, card.xField || state.xField, card.yField || state.yField, card.aggregation || 'sum')}</div></article>`;
 }
 
 function renderOverview() {
   const cards = state.dashboard.cards.length ? state.dashboard.cards : defaultDashboard().cards;
   if (!state.dashboard.cards.length) state.dashboard.cards = cards;
-  return `<div class="overview-toolbar"><div><span class="result-count">${format(state.filtered.length, 0)} filas visibles</span><span class="source-line">Fuente: ${esc(state.sourceDetail)}</span></div><div class="toolbar-actions"><button class="button button-ghost" data-tab="prepare">Editar filtros</button><button class="button button-soft" data-action="add-table">＋ Tabla</button></div></div><div class="dashboard-grid">${cards.map(cardHTML).join('')}</div>`;
+  return `<div class="overview-toolbar"><div><span class="result-count">${format(state.filtered.length, 0)} filas visibles</span><span class="source-line">Fuente: ${esc(state.sourceDetail)}</span></div><div class="toolbar-actions"><button class="button button-ghost" data-tab="prepare">Editar filtros</button><button class="button button-ghost" data-action="reset-filters">Restablecer filtros</button><button class="button button-soft" data-action="add-table">＋ Tabla</button><button class="button button-soft" data-action="reset-dashboard">Restablecer dashboard</button></div></div><div class="dashboard-grid">${cards.map(cardHTML).join('')}</div>`;
 }
 
 function renderFilters() {
@@ -100,11 +104,12 @@ function renderFilters() {
     if (column.type === 'number') return `<div class="filter-field"><label>${esc(column.name)}<small>mínimo / máximo</small></label><div class="range-fields"><input type="number" placeholder="mín" data-filter-kind="min" data-filter-key="${esc(column.name)}" value="${esc(state.filters[column.name]?.min ?? '')}"><input type="number" placeholder="máx" data-filter-kind="max" data-filter-key="${esc(column.name)}" value="${esc(state.filters[column.name]?.max ?? '')}"></div></div>`;
     return `<div class="filter-field"><label>${esc(column.name)}<small>${format(values.length, 0)} valores</small></label><select data-filter-kind="value" data-filter-key="${esc(column.name)}"><option value="">Todos</option>${values.map(value => `<option value="${esc(value)}" ${String(state.filters[column.name]?.value) === String(value) ? 'selected' : ''}>${esc(value)}</option>`).join('')}</select></div>`;
   }).join('');
-  return `<div class="filter-panel"><div class="filter-search"><input id="search-input" type="search" placeholder="Buscar en cualquier campo…" value="${esc(state.search)}"><button class="button button-soft" data-action="apply-search">Aplicar</button></div><div class="filter-grid">${controls || '<span class="muted">Carga un conjunto de datos para crear filtros.</span>'}</div></div>`;
+  const active = Object.entries(state.filters).flatMap(([key, filter]) => Object.entries(filter).map(([kind, value]) => `<button class="filter-chip" data-action="remove-filter" data-key="${esc(key)}" data-filter-part="${esc(kind)}">${esc(key)}: ${esc(value)} ×</button>`)).join('');
+  return `<div class="filter-panel"><div class="filter-panel-header"><div><span class="eyebrow">Filtros</span><strong>${active ? 'Filtros activos' : 'Todos los registros'}</strong></div><button class="button button-ghost" data-action="reset-filters">Limpiar filtros</button></div><div class="filter-search"><label class="sr-only" for="search-input">Buscar en cualquier campo</label><input id="search-input" type="search" aria-label="Buscar en cualquier campo" placeholder="Buscar en cualquier campo…" value="${esc(state.search)}"><button class="button button-soft" data-action="apply-search">Aplicar</button></div>${active ? `<div class="filter-chips">${active}</div>` : ''}<div class="filter-grid">${controls || '<span class="muted">Carga un conjunto de datos para crear filtros.</span>'}</div></div>`;
 }
 
 function renderPrepare() {
-  return `${renderFilters()}<div class="panel"><div class="panel-heading"><div><span class="eyebrow">Esquema y muestra</span><h3>${format(state.filtered.length, 0)} filas filtradas</h3></div><span class="panel-note">${format(state.columns.length, 0)} campos detectados</span></div>${tableHTML(state.filtered, state.columns, 18)}</div>`;
+  return `${renderFilters()}<div class="panel"><div class="panel-heading"><div><span class="eyebrow">Esquema y muestra</span><h3>${format(state.filtered.length, 0)} filas filtradas</h3></div><span class="panel-note">${format(state.columns.length, 0)} campos detectados${state.columns.length > 10 ? ' · filtros en los 10 primeros' : ''}</span></div>${tableHTML(state.filtered, state.columns, 18)}</div>`;
 }
 
 function fieldSelect(id, value, numericOnly = false) {
@@ -118,10 +123,10 @@ function renderAnalyze() {
 
 function renderQuality() {
   const totalCells = state.rows.length * state.columns.length;
-  const missing = state.rows.reduce((sum, row) => sum + state.columns.filter(column => row[column.name] === null || row[column.name] === undefined || String(row[column.name]).trim() === '').length, 0);
+  const missing = state.rows.reduce((sum, row) => sum + state.columns.filter(column => isMissing(row[column.name])).length, 0);
   const duplicateKeys = new Set(state.rows.map(row => JSON.stringify(row)));
   const cards = `<div class="quality-summary"><article class="quality-stat"><span>Completitud</span><strong>${format(totalCells ? (1 - missing / totalCells) * 100 : 0, 1)}%</strong><small>${format(missing, 0)} celdas vacías</small></article><article class="quality-stat"><span>Duplicados exactos</span><strong>${format(state.rows.length - duplicateKeys.size, 0)}</strong><small>Comparación de filas completas</small></article><article class="quality-stat"><span>Campos numéricos</span><strong>${format(numericColumns().length, 0)}</strong><small>Listos para métricas</small></article></div>`;
-  const rows = state.columns.map(column => { const values = state.rows.map(row => row[column.name]); const present = values.filter(value => value !== null && value !== undefined && String(value).trim() !== ''); const numbers = present.map(toNumber).filter(value => value !== null); return `<tr><td><strong>${esc(column.name)}</strong><small>${esc(column.type)}</small></td><td>${format(state.rows.length - present.length, 0)}</td><td>${format(new Set(present.map(String)).size, 0)}</td><td>${column.type === 'number' ? `${format(Math.min(...numbers), 1)} – ${format(Math.max(...numbers), 1)}` : '—'}</td><td><span class="quality-bar"><i style="width:${state.rows.length ? present.length / state.rows.length * 100 : 0}%"></i></span></td></tr>`; }).join('');
+  const rows = state.columns.map(column => { const values = state.rows.map(row => row[column.name]); const present = values.filter(value => !isMissing(value)); const numbers = present.map(toNumber).filter(value => value !== null); const range = column.type === 'number' && numbers.length ? `${format(Math.min(...numbers), 1)} – ${format(Math.max(...numbers), 1)}` : '—'; return `<tr><td><strong>${esc(column.name)}</strong><small>${esc(column.type)}</small></td><td>${format(state.rows.length - present.length, 0)}</td><td>${format(new Set(present.map(String)).size, 0)}</td><td>${range}</td><td><span class="quality-bar"><i style="width:${state.rows.length ? present.length / state.rows.length * 100 : 0}%"></i></span></td></tr>`; }).join('');
   return `${cards}<div class="panel"><div class="panel-heading"><div><span class="eyebrow">Auditoría por campo</span><h3>Perfil de calidad del conjunto</h3></div><span class="panel-note">Sin enviar datos fuera del navegador</span></div><div class="table-scroll"><table class="quality-table"><thead><tr><th>Campo</th><th>Vacíos</th><th>Únicos</th><th>Rango</th><th>Cobertura</th></tr></thead><tbody>${rows}</tbody></table></div></div><div class="provenance"><strong>Lectura responsable</strong><span>El perfil describe el archivo cargado, no valida por sí solo la exactitud semántica, geográfica o estadística de sus valores. Conserva la fuente original y revisa los campos críticos antes de publicar resultados.</span></div>`;
 }
 
@@ -141,8 +146,10 @@ function download(name, content, mime = 'text/plain;charset=utf-8') {
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
+  link.hidden = true;
+  document.body.appendChild(link);
   link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 500);
+  window.setTimeout(() => { link.remove(); URL.revokeObjectURL(url); }, 500);
 }
 
 function csvCell(value) {
@@ -158,7 +165,7 @@ function exportCSV() {
 }
 
 function saveProject() {
-  const project = { format: 'data-insight-project', version: 1, savedAt: new Date().toISOString(), meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail }, rows: state.rows, filters: state.filters, search: state.search, activeTab: state.activeTab, xField: state.xField, yField: state.yField, chartType: state.chartType, aggregation: state.aggregation, dashboard: state.dashboard };
+  const project = { format: 'data-insight-project', version: 2, savedAt: new Date().toISOString(), meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail }, rows: state.rows, filters: state.filters, search: state.search, activeTab: state.activeTab, xField: state.xField, yField: state.yField, chartType: state.chartType, aggregation: state.aggregation, sortKey: state.sortKey, sortDir: state.sortDir, tableLimit: state.tableLimit, dashboard: state.dashboard };
   download(`${state.datasetName.replace(/[^\wáéíóúüñ-]+/gi, '-').slice(0, 48) || 'proyecto'}.data-insight.json`, JSON.stringify(project, null, 2), 'application/json;charset=utf-8');
   announce('Proyecto guardado. Puedes abrirlo de nuevo desde la barra lateral.');
 }
@@ -209,7 +216,7 @@ async function importProject(file) {
   if (!file) return;
   try {
     const project = JSON.parse(await file.text());
-    if (project.format !== 'data-insight-project' || !Array.isArray(project.rows)) throw new Error('El archivo no es un proyecto Data Insight válido.');
+    if (project.format !== 'data-insight-project' || !Array.isArray(project.rows) || project.rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new Error('El archivo no es un proyecto Data Insight válido.');
     loadRows(project.rows, project.meta || { name: file.name, kind: 'local' });
     state.filters = project.filters || {};
     state.search = project.search || '';
@@ -217,6 +224,9 @@ async function importProject(file) {
     state.yField = project.yField || state.yField;
     state.chartType = project.chartType || 'bar';
     state.aggregation = project.aggregation || 'sum';
+    state.sortKey = project.sortKey || '';
+    state.sortDir = project.sortDir === 'desc' ? 'desc' : 'asc';
+    state.tableLimit = Number.isFinite(project.tableLimit) ? Math.max(20, project.tableLimit) : 20;
     state.dashboard = project.dashboard || defaultDashboard();
     state.activeTab = project.activeTab || 'overview';
     applyFilters();
@@ -236,7 +246,7 @@ function addCalculatedField() {
   if (tokens.some(token => !names.includes(token))) { announce('La fórmula usa un campo que no existe o cuyo nombre no es compatible.', 'error'); return; }
   try {
     const calculate = Function(...names, `return (${formula});`);
-    state.rows = state.rows.map(row => ({ ...row, [name]: calculate(...names.map(field => toNumber(row[field]) ?? 0)) }));
+    state.rows = state.rows.map(row => { const result = calculate(...names.map(field => toNumber(row[field]) ?? 0)); return { ...row, [name]: Number.isFinite(result) ? result : null }; });
     rebuildColumns();
     state.dashboard = defaultDashboard();
     applyFilters();
@@ -262,6 +272,8 @@ function bind() {
   app.addEventListener('click', event => {
     const tab = event.target.closest('[data-tab]')?.dataset.tab;
     if (tab) { state.activeTab = tab; renderAll(); return; }
+    const sortNode = event.target.closest('[data-sort-key]');
+    if (sortNode) { const key = sortNode.dataset.sortKey; state.sortDir = state.sortKey === key && state.sortDir === 'asc' ? 'desc' : 'asc'; state.sortKey = key; renderAll(); return; }
     const actionNode = event.target.closest('[data-action]');
     if (!actionNode) return;
     const action = actionNode.dataset.action;
@@ -271,10 +283,16 @@ function bind() {
     if (action === 'export') exportCSV();
     if (action === 'save') saveProject();
     if (action === 'reset') resetFromDemo();
+    if (action === 'reset-filters') { state.filters = {}; state.search = ''; renderAll(); announce('Filtros restablecidos.'); }
+    if (action === 'remove-filter') { const key = actionNode.dataset.key; const part = actionNode.dataset.filterPart; if (state.filters[key]) { if (part) delete state.filters[key][part]; else delete state.filters[key]; if (!Object.keys(state.filters[key] || {}).length) delete state.filters[key]; } renderAll(); }
+    if (action === 'reset-dashboard') { state.dashboard = defaultDashboard(); renderAll(); announce('Dashboard restablecido.'); }
+    if (action === 'show-more') { state.tableLimit += 20; renderAll(); }
     if (action === 'add-calculated') addCalculatedField();
     if (action === 'apply-search') { state.search = document.querySelector('#search-input')?.value || ''; renderAll(); }
     if (action === 'add-chart') { state.dashboard.cards.push({ id: `chart-${Date.now()}`, type: 'chart', title: `${state.yField} por ${state.xField}`, chartType: state.chartType, xField: state.xField, yField: state.yField, aggregation: state.aggregation }); announce('Visual añadido al dashboard.'); renderAll(); }
     if (action === 'add-table') { state.dashboard.cards.push({ id: `table-${Date.now()}`, type: 'table', title: 'Nueva tabla' }); announce('Tabla añadida al dashboard.'); renderAll(); }
+    if (action === 'edit-card') { const card = state.dashboard.cards.find(item => item.id === actionNode.dataset.id); if (card) { const title = window.prompt('Título de la tarjeta:', card.title || 'Visualización'); if (title?.trim()) { card.title = title.trim(); renderAll(); } } }
+    if (action === 'duplicate-card') { const card = state.dashboard.cards.find(item => item.id === actionNode.dataset.id); if (card) { state.dashboard.cards.push({ ...card, id: `${card.type}-${Date.now()}`, title: `${card.title || 'Tarjeta'} (copia)` }); announce('Tarjeta duplicada.'); renderAll(); } }
     if (action === 'remove-card') { state.dashboard.cards = state.dashboard.cards.filter(card => card.id !== actionNode.dataset.id); renderAll(); }
     if (action === 'clear-alert') { const alert = document.querySelector('#app-alert'); if (alert) alert.innerHTML = ''; }
     if (action === 'fullscreen') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.(); }

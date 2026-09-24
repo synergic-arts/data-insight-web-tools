@@ -9,6 +9,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - **Transform Lab**: filtros combinados, búsqueda, campos calculados aritméticos y exportación.
 - Entrada local de CSV, TSV, JSON, GeoJSON y datos pegados.
 - Guardado y reapertura de proyectos `.data-insight.json`.
+- Ordenación de tablas, paginación progresiva, chips de filtros, reinicio de vistas y duplicación/renombrado de tarjetas.
 - Service worker para reutilizar la interfaz sin conexión después de la primera visita.
 - Diseño responsive y controles táctiles para escritorio, tableta y móvil.
 
