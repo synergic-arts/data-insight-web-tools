@@ -11,8 +11,9 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Guardado y reapertura de proyectos `.data-insight.json`.
 - Ordenación de tablas, paginación progresiva, chips de filtros, reinicio de vistas y duplicación/renombrado de tarjetas.
 - Visuales con título, orden por valor y configuración persistida; exportación CSV o JSON de la población visible con filtros y procedencia.
+- Escalas firmadas para gráficos de barras y líneas, con línea cero y tooltips accesibles para valores negativos y positivos.
 - Service worker para reutilizar la interfaz sin conexión después de la primera visita.
-- Diseño responsive y controles táctiles para escritorio, tableta y móvil.
+- Instalación PWA con icono, diseño responsive y controles táctiles para escritorio, tableta y móvil.
 
 ## Privacidad y trazabilidad
 

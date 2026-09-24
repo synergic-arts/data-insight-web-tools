@@ -79,7 +79,7 @@ export function rebuildColumns() {
   state.rows.forEach(row => Object.keys(row).forEach(key => names.add(key)));
   state.columns = [...names].map(name => ({ name, type: inferType(state.rows.map(row => row[name])) }));
   if (!state.xField || !state.columns.some(column => column.name === state.xField)) state.xField = state.columns.find(column => column.type === 'text')?.name || state.columns[0]?.name || '';
-  if (!state.yField || !state.columns.some(column => column.name === state.yField) || /^(id|_row_id|latitude|longitude)$/i.test(state.yField)) state.yField = state.columns.find(column => column.type === 'number' && !/^(id|_row_id|latitude|longitude)$/i.test(column.name))?.name || state.columns.find(column => column.type === 'number')?.name || state.columns[0]?.name || '';
+  if (!state.yField || !state.columns.some(column => column.name === state.yField && column.type === 'number') || /^(id|_row_id|latitude|longitude)$/i.test(state.yField)) state.yField = state.columns.find(column => column.type === 'number' && !/^(id|_row_id|latitude|longitude)$/i.test(column.name))?.name || state.columns.find(column => column.type === 'number')?.name || state.columns[0]?.name || '';
 }
 
 export function applyFilters() {

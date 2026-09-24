@@ -107,11 +107,52 @@ function histogramChart(rows, field) {
 }
 
 export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original') {
-  if (type === 'line') return lineChart(rows, xField, yField, aggregation, ordering);
+  if (type === 'line') return signedLineChart(rows, xField, yField, aggregation, ordering);
   if (type === 'donut') return donutChart(rows, xField, yField, aggregation, ordering);
   if (type === 'scatter') return scatterChart(rows, xField, yField);
   if (type === 'histogram') return histogramChart(rows, yField);
-  return barChart(rows, xField, yField, aggregation, ordering);
+  return signedBarChart(rows, xField, yField, aggregation, ordering);
+}
+
+function chartScale(values) {
+  const min = Math.min(0, ...values);
+  const max = Math.max(0, ...values);
+  const span = max - min || 1;
+  const y = value => 274 - ((value - min) / span) * 220;
+  return { y, baseline: y(0) };
+}
+
+function signedBarChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, ordering);
+  if (!groups.length) return emptyChart();
+  const scale = chartScale(groups.map(item => item.value));
+  const bars = groups.map((item, index) => {
+    const valueY = scale.y(item.value);
+    const baseY = scale.baseline;
+    const x = 74 + index * (700 / groups.length) + (700 / groups.length) * 0.14;
+    const width = (700 / groups.length) * 0.72;
+    const height = Math.max(2, Math.abs(baseY - valueY));
+    const y = Math.min(baseY, valueY);
+    const labelY = item.value >= 0 ? Math.max(20, y - 8) : Math.min(294, y + height + 16);
+    return '<g class="chart-bar"><title>' + esc(item.label) + ': ' + format(item.value, 1) + '</title><rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + width.toFixed(1) + '" height="' + height.toFixed(1) + '" rx="8" fill="' + COLORS[index % COLORS.length] + '"/><text x="' + (x + width / 2).toFixed(1) + '" y="' + labelY.toFixed(1) + '" text-anchor="middle">' + format(item.value, 1) + '</text><text class="chart-axis-label" x="' + (x + width / 2).toFixed(1) + '" y="296" text-anchor="middle">' + axisLabel(item.label) + '</text></g>';
+  }).join('');
+  const zero = scale.baseline === 274 ? '' : '<line class="chart-zero" x1="62" y1="' + scale.baseline.toFixed(1) + '" x2="790" y2="' + scale.baseline.toFixed(1) + '"/>';
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">' + esc(yField) + '</text>' + zero + bars, xField + ' por ' + yField);
+}
+
+function signedLineChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, ordering);
+  if (!groups.length) return emptyChart();
+  const scale = chartScale(groups.map(item => item.value));
+  const step = groups.length === 1 ? 0 : 700 / (groups.length - 1);
+  const points = groups.map((item, index) => (74 + index * step) + ',' + scale.y(item.value)).join(' ');
+  const dots = groups.map((item, index) => {
+    const x = 74 + index * step;
+    const y = scale.y(item.value);
+    return '<circle cx="' + x + '" cy="' + y + '" r="5" fill="#67e8f9"><title>' + esc(item.label) + ': ' + format(item.value, 1) + '</title></circle><text class="chart-axis-label" x="' + x + '" y="296" text-anchor="middle">' + axisLabel(item.label) + '</text>';
+  }).join('');
+  const zero = scale.baseline === 274 ? '' : '<line class="chart-zero" x1="62" y1="' + scale.baseline.toFixed(1) + '" x2="790" y2="' + scale.baseline.toFixed(1) + '"/>';
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">' + esc(yField) + '</text>' + zero + '<polyline class="chart-line" points="' + points + '" fill="none" stroke="#67e8f9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>' + dots, xField + ' por ' + yField);
 }
 
 export function tableHTML(rows, columns, limit = 12) {

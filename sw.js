@@ -1,4 +1,4 @@
-const CACHE = 'data-insight-v3';
+const CACHE = 'data-insight-v4';
 const ASSETS = ['./', './index.html', './shared/styles.css', './shared/ux.css', './shared/app.js', './shared/data.js', './shared/charts.js', './manifest.webmanifest', './favicon.svg'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('data-insight-') && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
