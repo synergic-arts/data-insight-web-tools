@@ -1,5 +1,5 @@
-import { DEMO_ROWS, state, esc, format, toNumber, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js?v=20260925-25';
-import { chartSVG, tableHTML } from './charts.js?v=20260925-25';
+import { DEMO_ROWS, state, esc, format, toNumber, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js?v=20260925-26';
+import { chartSVG, tableHTML } from './charts.js?v=20260925-26';
 
 const root = document.body;
 const transformationHistory = [];
@@ -8,7 +8,8 @@ const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'ana
 const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
 const CHART_TYPES = ['bar', 'grouped-bar', 'stacked-bar', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'funnel', 'waterfall', 'radar', 'treemap', 'sankey', 'pareto'];
 const CHART_LABELS = { bar: 'Barras', 'grouped-bar': 'Barras agrupadas', 'stacked-bar': 'Barras apiladas', line: 'Línea', area: 'Área', 'stacked-area': 'Área apilada', combo: 'Combinado', forecast: 'Proyección', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', heatmap: 'Mapa de calor bivariado', correlation: 'Matriz de correlación', funnel: 'Embudo', waterfall: 'Cascada', radar: 'Radar', treemap: 'Treemap', sankey: 'Sankey de flujos', pareto: 'Pareto' };
-const AGGREGATIONS = ['sum', 'avg', 'count'];
+const AGGREGATIONS = ['sum', 'avg', 'median', 'min', 'max', 'count', 'distinct'];
+const AGGREGATION_LABELS = { sum: 'Suma', avg: 'Media', median: 'Mediana', min: 'Mínimo', max: 'Máximo', count: 'Recuento', distinct: 'Valores distintos' };
 const SORT_MODES = ['original', 'value-desc', 'value-asc'];
 const numericColumns = () => state.columns.filter(column => column.type === 'number');
 const analysisNumericColumns = () => numericColumns().filter(column => !/^(id|_row_id|year|año)$/i.test(column.name));
@@ -238,17 +239,23 @@ function fieldSelect(id, value, numericOnly = false, allowBlank = false, blankLa
   return options ? `<select id="${id}">${blank}${options}</select>` : `<select id="${id}" disabled><option>Sin campos disponibles</option></select>`;
 }
 
+function aggregationOptions(selected, hasMetric) {
+  return AGGREGATIONS.map(value => {
+    const numericOnly = !['count', 'distinct'].includes(value);
+    return `<option value="${value}" ${selected === value ? 'selected' : ''}${numericOnly && !hasMetric ? ' disabled' : ''}>${AGGREGATION_LABELS[value]}</option>`;
+  }).join('');
+}
+
 function renderAnalyze() {
   const hasMetric = numericColumns().length > 0;
-  const aggregation = hasMetric && AGGREGATIONS.includes(state.aggregation) ? state.aggregation : 'count';
+  const aggregation = AGGREGATIONS.includes(state.aggregation) && (hasMetric || ['count', 'distinct'].includes(state.aggregation)) ? state.aggregation : 'count';
   if (state.aggregation !== aggregation) state.aggregation = aggregation;
-  const disabledMetricOptions = hasMetric ? '' : ' disabled';
   const geo = coordinates();
   const flow = bestFlowFields();
   const helper = hasMetric ? `Los gráficos se calculan en memoria con las filas filtradas. ${geo.longitude && geo.latitude ? `Se detectan coordenadas ${geo.longitude}/${geo.latitude}; prueba un mapa de puntos, burbujas o densidad.` : 'Puedes cargar un GeoJSON o campos lon/lat para activar el mapa.'} ${flow.source && flow.target ? `Se detecta un flujo ${flow.source} → ${flow.target}; prueba el Sankey.` : ''} ${analysisNumericColumns().length > 1 ? 'El mapa de calor, el combinado y la matriz de correlación comparan métricas compatibles.' : ''}` : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
   const previewTitle = state.chartTitle || `${state.yField} por ${state.xField}`;
   const chartOptions = Object.entries(CHART_LABELS).map(([value, label]) => `<option value="${value}" ${state.chartType === value ? 'selected' : ''}>${label}</option>`).join('');
-  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Métrica secundaria<span>${fieldSelect('secondary-field', state.secondaryField, true, true, 'Sin segunda métrica')}</span></label><label>Serie / color<span>${fieldSelect('series-field', state.seriesField, false, true)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Agregación<select id="aggregation"><option value="sum" ${aggregation === 'sum' ? 'selected' : ''}${disabledMetricOptions}>Suma</option><option value="avg" ${aggregation === 'avg' ? 'selected' : ''}${disabledMetricOptions}>Media</option><option value="count" ${aggregation === 'count' ? 'selected' : ''}>Recuento</option></select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper}</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><div class="panel-heading-actions"><span class="panel-note">${format(state.filtered.length, 0)} filas</span><button class="button button-ghost" data-action="export-svg">Exportar SVG</button></div></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort, state.seriesField, state.secondaryField)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
+  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Métrica secundaria<span>${fieldSelect('secondary-field', state.secondaryField, true, true, 'Sin segunda métrica')}</span></label><label>Serie / color<span>${fieldSelect('series-field', state.seriesField, false, true)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Agregación<select id="aggregation">${aggregationOptions(aggregation, hasMetric)}</select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper} Las agregaciones numéricas incluyen suma, media, mediana, mínimo y máximo; también puedes contar filas o valores distintos.</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><div class="panel-heading-actions"><span class="panel-note">${format(state.filtered.length, 0)} filas</span><button class="button button-ghost" data-action="export-svg">Exportar SVG</button></div></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort, state.seriesField, state.secondaryField)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
 }
 
 function enhanceAnalyzeUI() {
@@ -381,7 +388,8 @@ async function askLocalModel(request = '', mode = 'analysis') {
   const prompt = mode === 'plan'
     ? `Actúa como un planificador de operaciones de datos. Devuelve SOLO un objeto JSON válido, sin markdown ni explicación. Elige una sola acción: chart o treatment. Para chart usa exactamente este esquema: {"action":"chart","chartType":"bar|grouped-bar|stacked-bar|line|area|stacked-area|combo|forecast|donut|scatter|histogram|boxplot|map|bubble-map|density-map|heatmap|correlation|funnel|waterfall|radar|treemap|sankey|pareto","xField":"nombre exacto","yField":"nombre exacto","secondaryField":"segunda métrica numérica o cadena vacía","seriesField":"campo de serie o cadena vacía","aggregation":"sum|avg|count","chartSort":"original|value-desc|value-asc","title":"título breve"}. En sankey, xField es origen y seriesField es destino. Para treatment usa: {"action":"treatment","command":"orden breve en español"}. Solo puedes usar nombres de campos que aparezcan en el perfil. No inventes campos, coordenadas ni valores. La orden treatment debe ser una de estas operaciones: eliminar duplicados, eliminar filas vacías, rellenar faltantes, limpiar espacios, normalizar un campo numérico, detectar atípicos o segmentar un campo numérico. Petición: ${request || 'elige un análisis útil'}. Perfil: ${JSON.stringify(profile)}`
     : `Actúa como analista de datos. Responde en español, con prudencia y sin inventar. Analiza este perfil local y propone hasta cinco acciones concretas de limpieza, métricas o visualizaciones. Si el usuario ha pedido una operación, explica cómo ejecutarla con los campos disponibles y no inventes columnas. Si hay coordenadas, recomienda un mapa apropiado. No afirmes causalidad. Petición del usuario: ${request || 'sin petición adicional'}. Perfil: ${JSON.stringify(profile)}`;
-  const answer = await state.aiSession.prompt(prompt);
+  const enhancedPrompt = prompt.replace('"aggregation":"sum|avg|count"', '"aggregation":"sum|avg|median|min|max|count|distinct"');
+  const answer = await state.aiSession.prompt(enhancedPrompt);
   setAIStatus('Gemini Nano listo', 'ready');
   return answer;
 }
@@ -467,6 +475,10 @@ function buildAssistantPlan(command) {
   else if (/anillo|proporci[oó]n|porcentaje|composici[oó]n/.test(normalized)) chartType = 'donut';
   else if (/a[áa]rea/.test(normalized)) chartType = 'area';
   else if (/l[ií]nea|evoluci[oó]n|tendencia|temporal|serie/.test(normalized)) { chartType = 'line'; xField = temporal?.name || dimension; }
+  else if (/mediana|median/.test(normalized)) aggregation = 'median';
+  else if (/m[ií]nimo|min(?:imum)?/.test(normalized)) aggregation = 'min';
+  else if (/m[aá]ximo|max(?:imum)?/.test(normalized)) aggregation = 'max';
+  else if (/distint|[uú]nic|unique/.test(normalized)) aggregation = 'distinct';
   else if (/recuento|contar|cu[aá]ntos/.test(normalized)) aggregation = 'count';
   if (chartType === 'histogram') xField = yField;
   if (chartType === 'line' && !temporal && !matches.some(column => column.type === 'date')) xField = dimension;
@@ -959,6 +971,8 @@ function showCardEditor(card) {
   const markup = '<div id="card-editor-modal" class="modal-backdrop"><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="card-editor-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Personalizar visual</span><h2 id="card-editor-title">' + esc(card.title || 'Visualización') + '</h2></div><button class="remove-card" data-modal-action="close-card-editor" aria-label="Cerrar ventana">×</button></div><div class="editor-grid"><label>Título<input id="card-editor-name" type="text" maxlength="100" value="' + esc(card.title || '') + '"></label><label>Tipo<select id="card-editor-type">' + chartOptions + '</select></label><label>Dimensión / X<select id="card-editor-x">' + selectOptions(fields, card.xField) + '</select></label><label>Métrica / Y<select id="card-editor-y">' + selectOptions(fields, card.yField) + '</select></label><label>Métrica secundaria<select id="card-editor-secondary">' + numericOptions + '</select></label><label>Serie / color<select id="card-editor-series">' + seriesOptions + '</select></label><label>Agregación<select id="card-editor-aggregation">' + selectOptions(AGGREGATIONS, card.aggregation) + '</select></label><label>Orden<select id="card-editor-sort">' + selectOptions(SORT_MODES, card.chartSort) + '</select></label></div><p class="helper">El combinado usa barras y línea con dos métricas; las áreas apiladas y barras comparan una segunda dimensión. Los mapas necesitan longitud y latitud; la dispersión, el calor y la matriz necesitan campos numéricos.</p><div class="modal-actions"><button class="button button-ghost" data-modal-action="close-card-editor">Cancelar</button><button class="button button-primary" data-modal-action="save-card-editor">Guardar visual</button></div></div></div>';
   document.body.insertAdjacentHTML('beforeend', markup);
   const modal = document.querySelector('#card-editor-modal');
+  const aggregationSelect = modal?.querySelector('#card-editor-aggregation');
+  if (aggregationSelect) aggregationSelect.innerHTML = aggregationOptions(card.aggregation, numericColumns().length > 0);
   const close = () => modal?.remove();
   modal.addEventListener('click', event => { if (event.target === modal || event.target.closest('[data-modal-action="close-card-editor"]')) close(); });
   modal.querySelector('[data-modal-action="save-card-editor"]').addEventListener('click', () => {

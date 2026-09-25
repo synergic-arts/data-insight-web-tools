@@ -1,4 +1,4 @@
-import { state, esc, format, toNumber, toCoordinate, isMissing } from './data.js?v=20260925-25';
+import { state, esc, format, toNumber, toCoordinate, isMissing } from './data.js?v=20260925-26';
 
 const COLORS = ['#67e8f9', '#a78bfa', '#fbbf24', '#34d399', '#fb7185', '#60a5fa', '#c084fc', '#2dd4bf', '#f97316', '#f472b6'];
 
@@ -14,11 +14,8 @@ function groupRows(rows, xField, yField, aggregation, ordering = 'original') {
     groups.get(key).push(row);
   });
   const result = [...groups.entries()].map(([label, items]) => {
-    const numbers = items.map(item => toNumber(item[yField])).filter(value => value !== null);
-    let value = items.length;
-    if (aggregation === 'sum') value = numbers.length ? numbers.reduce((total, item) => total + item, 0) : null;
-    if (aggregation === 'avg') value = numbers.length ? numbers.reduce((total, item) => total + item, 0) / numbers.length : null;
-    return { label, value: value === null ? null : Number(value), count: items.length, hasValue: aggregation === 'count' || numbers.length > 0 };
+    const value = aggregateValue(items, yField, aggregation);
+    return { label, value: value === null ? null : Number(value), count: items.length, hasValue: value !== null };
   }).filter(item => item.hasValue);
   if (ordering === 'value-desc') result.sort((a, b) => b.value - a.value);
   if (ordering === 'value-asc') result.sort((a, b) => a.value - b.value);
@@ -26,10 +23,21 @@ function groupRows(rows, xField, yField, aggregation, ordering = 'original') {
 }
 
 function aggregateValue(items, yField, aggregation) {
-  const numbers = items.map(item => toNumber(item[yField])).filter(value => value !== null);
+  const values = items.map(item => item[yField]).filter(value => !isMissing(value));
   if (aggregation === 'count') return items.length;
+  if (aggregation === 'distinct') return new Set(values.map(value => String(value))).size;
+  const numbers = values.map(toNumber).filter(value => value !== null);
   if (!numbers.length) return null;
-  return aggregation === 'avg' ? numbers.reduce((total, item) => total + item, 0) / numbers.length : numbers.reduce((total, item) => total + item, 0);
+  if (aggregation === 'sum') return numbers.reduce((total, item) => total + item, 0);
+  if (aggregation === 'avg') return numbers.reduce((total, item) => total + item, 0) / numbers.length;
+  if (aggregation === 'min') return Math.min(...numbers);
+  if (aggregation === 'max') return Math.max(...numbers);
+  if (aggregation === 'median') {
+    const ordered = [...numbers].sort((left, right) => left - right);
+    const middle = Math.floor(ordered.length / 2);
+    return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2;
+  }
+  return numbers.reduce((total, item) => total + item, 0);
 }
 
 function seriesGroups(rows, xField, yField, seriesField, aggregation, ordering = 'original') {
