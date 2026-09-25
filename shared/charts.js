@@ -155,6 +155,85 @@ function areaChart(rows, xField, yField, aggregation, ordering) {
   return chartFrame(`<text class="chart-axis-title" x="62" y="20">${esc(yField)}</text>${zero}<polygon points="${areaPoints}" fill="#70e1bb26"/><polyline class="chart-line" points="${points}" fill="none" stroke="#70e1bb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>${dots}`, `${xField} como área`);
 }
 
+function stackedAreaChart(rows, xField, yField, seriesField, aggregation, ordering) {
+  const split = seriesGroups(rows, xField, yField, seriesField, aggregation, ordering);
+  if (!split || !split.seriesNames.length) return emptyChart('El área apilada necesita una serie categórica');
+  const categoryNames = split.categoryNames;
+  const seriesNames = split.seriesNames;
+  const totals = categoryNames.map(category => seriesNames.reduce((sum, name) => sum + Math.max(0, split.value(category, name) ?? 0), 0));
+  const max = Math.max(...totals, 1);
+  const step = categoryNames.length === 1 ? 0 : 700 / (categoryNames.length - 1);
+  const scale = amount => 274 - amount / max * 220;
+  const running = Array.from({ length: categoryNames.length }, () => 0);
+  const areas = seriesNames.map((name, seriesIndex) => {
+    const lower = running.slice();
+    const upper = categoryNames.map((category, index) => { running[index] += Math.max(0, split.value(category, name) ?? 0); return running[index]; });
+    const top = upper.map((amount, index) => (74 + index * step).toFixed(1) + ',' + scale(amount).toFixed(1)).join(' ');
+    const bottom = lower.map((amount, index) => (74 + index * step).toFixed(1) + ',' + scale(amount).toFixed(1)).reverse().join(' ');
+    return '<polygon points="' + top + ' ' + bottom + '" fill="' + COLORS[seriesIndex % COLORS.length] + '55" stroke="' + COLORS[seriesIndex % COLORS.length] + '" stroke-width="2"><title>' + esc(name) + '</title></polygon>';
+  }).join('');
+  const labels = categoryNames.map((category, index) => '<text class="chart-axis-label" x="' + (74 + index * step).toFixed(1) + '" y="296" text-anchor="middle">' + axisLabel(category) + '</text>').join('');
+  const legend = seriesNames.map((name, index) => '<g transform="translate(' + (430 + (index % 3) * 112) + ' ' + (38 + Math.floor(index / 3) * 20) + ')"><rect width="10" height="10" rx="3" fill="' + COLORS[index % COLORS.length] + '"/><text x="16" y="9">' + axisLabel(name) + '</text></g>').join('');
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">Área apilada · ' + esc(yField) + '</text>' + legend + areas + labels, xField + ' por ' + yField + ' y ' + seriesField);
+}
+
+function comboChart(rows, xField, yField, secondaryField, aggregation, ordering) {
+  if (!secondaryField) return emptyChart('El combinado necesita una segunda métrica numérica');
+  const primary = groupRows(rows, xField, yField, aggregation, ordering);
+  const secondary = groupRows(rows, xField, secondaryField, aggregation, ordering);
+  const labels = [...new Set([...primary.map(item => item.label), ...secondary.map(item => item.label)])].slice(0, 18);
+  if (!labels.length) return emptyChart();
+  const primaryMap = new Map(primary.map(item => [item.label, item.value]));
+  const secondaryMap = new Map(secondary.map(item => [item.label, item.value]));
+  const values = labels.flatMap(label => [primaryMap.get(label), secondaryMap.get(label)]).filter(value => value !== null && value !== undefined);
+  const scale = chartScale(values);
+  const slot = 700 / labels.length;
+  const bars = labels.map((label, index) => {
+    const value = primaryMap.get(label);
+    if (value === undefined || value === null) return '';
+    const valueY = scale.y(value);
+    const x = 74 + index * slot + slot * 0.12;
+    const width = slot * 0.48;
+    const height = Math.max(2, Math.abs(scale.baseline - valueY));
+    return '<g><title>' + esc(label) + ' · ' + esc(yField) + ': ' + format(value, 1) + '</title><rect x="' + x.toFixed(1) + '" y="' + Math.min(scale.baseline, valueY).toFixed(1) + '" width="' + width.toFixed(1) + '" height="' + height.toFixed(1) + '" rx="6" fill="#67e8f9"/><text class="chart-axis-label" x="' + (x + width / 2).toFixed(1) + '" y="296" text-anchor="middle">' + axisLabel(label) + '</text></g>';
+  }).join('');
+  const points = labels.map((label, index) => {
+    const value = secondaryMap.get(label);
+    return value === undefined || value === null ? null : [74 + index * slot + slot * 0.56, scale.y(value), label, value];
+  }).filter(Boolean);
+  const line = points.length > 1 ? '<polyline points="' + points.map(point => point[0].toFixed(1) + ',' + point[1].toFixed(1)).join(' ') + '" fill="none" stroke="#fbbf24" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>' : '';
+  const dots = points.map(point => '<circle cx="' + point[0].toFixed(1) + '" cy="' + point[1].toFixed(1) + '" r="5" fill="#fbbf24"><title>' + esc(point[2]) + ' · ' + esc(secondaryField) + ': ' + format(point[3], 1) + '</title></circle>').join('');
+  const zero = scale.baseline === 274 ? '' : '<line class="chart-zero" x1="62" y1="' + scale.baseline.toFixed(1) + '" x2="790" y2="' + scale.baseline.toFixed(1) + '"/>';
+  const legend = '<g transform="translate(560 38)"><rect width="10" height="10" rx="3" fill="#67e8f9"/><text x="16" y="9">' + axisLabel(yField) + '</text><rect x="104" width="10" height="10" rx="3" fill="#fbbf24"/><text x="120" y="9">' + axisLabel(secondaryField) + '</text></g>';
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">Combinado · ' + esc(yField) + ' + ' + esc(secondaryField) + '</text>' + legend + zero + bars + line + dots, xField + ': barras y línea');
+}
+
+function correlationChart(rows) {
+  const columns = state.columns.filter(column => column.type === 'number' && !/^(id|_row_id|year|año|latitude|longitude|lat|lon|lng)$/i.test(column.name)).slice(0, 8);
+  if (columns.length < 2) return emptyChart('La matriz de correlación necesita dos campos numéricos');
+  const correlation = (left, right) => {
+    const pairs = rows.map(row => [toNumber(row[left]), toNumber(row[right])]).filter(pair => pair.every(value => value !== null));
+    if (pairs.length < 3) return null;
+    const meanLeft = pairs.reduce((sum, pair) => sum + pair[0], 0) / pairs.length;
+    const meanRight = pairs.reduce((sum, pair) => sum + pair[1], 0) / pairs.length;
+    const numerator = pairs.reduce((sum, pair) => sum + (pair[0] - meanLeft) * (pair[1] - meanRight), 0);
+    const denominator = Math.sqrt(pairs.reduce((sum, pair) => sum + (pair[0] - meanLeft) ** 2, 0) * pairs.reduce((sum, pair) => sum + (pair[1] - meanRight) ** 2, 0));
+    return denominator ? numerator / denominator : null;
+  };
+  const size = Math.min(52, 226 / columns.length);
+  const startX = 188;
+  const startY = 52;
+  const labels = columns.map((column, index) => '<text class="chart-axis-label" x="' + (startX + index * size + size / 2).toFixed(1) + '" y="' + (startY - 8) + '" text-anchor="middle">' + axisLabel(column.name) + '</text><text class="chart-axis-label" x="' + (startX - 10) + '" y="' + (startY + index * size + size / 2 + 4).toFixed(1) + '" text-anchor="end">' + axisLabel(column.name) + '</text>').join('');
+  const cells = columns.flatMap((left, rowIndex) => columns.map((right, columnIndex) => {
+    const value = correlation(left.name, right.name);
+    const positive = value === null || value >= 0;
+    const opacity = value === null ? 0.18 : 0.22 + Math.abs(value) * 0.7;
+    const fill = positive ? '#67e8f9' : '#fb7185';
+    return '<g><rect x="' + (startX + columnIndex * size).toFixed(1) + '" y="' + (startY + rowIndex * size).toFixed(1) + '" width="' + (size - 2).toFixed(1) + '" height="' + (size - 2).toFixed(1) + '" rx="4" fill="' + fill + '" opacity="' + opacity.toFixed(2) + '"><title>' + esc(left.name) + ' / ' + esc(right.name) + ': ' + (value === null ? 'sin datos suficientes' : format(value, 2)) + '</title></rect><text x="' + (startX + columnIndex * size + size / 2).toFixed(1) + '" y="' + (startY + rowIndex * size + size / 2 + 4).toFixed(1) + '" text-anchor="middle">' + (value === null ? '—' : format(value, 2)) + '</text></g>';
+  })).join('');
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">Matriz de correlación lineal</text>' + labels + cells + '<text class="chart-axis-label" x="188" y="300">azul: positiva · rosa: negativa · escala de -1 a 1</text>', 'Matriz de correlación');
+}
+
 function boxPlotChart(rows, xField, yField, ordering) {
   const groups = new Map();
   rows.forEach(row => {
@@ -402,11 +481,13 @@ function treemapChart(rows, xField, yField, aggregation, ordering) {
   return chartFrame('<text class="chart-axis-title" x="62" y="20">Treemap · ' + esc(yField) + '</text>' + marks, 'Treemap');
 }
 
-export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original', seriesField = '') {
+export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original', seriesField = '', secondaryField = '') {
   if (type === 'grouped-bar') return multiBarChart(rows, xField, yField, seriesField, aggregation, ordering, false);
   if (type === 'stacked-bar') return multiBarChart(rows, xField, yField, seriesField, aggregation, ordering, true);
   if (type === 'line') return signedLineChart(rows, xField, yField, aggregation, ordering);
   if (type === 'area') return areaChart(rows, xField, yField, aggregation, ordering);
+  if (type === 'stacked-area') return stackedAreaChart(rows, xField, yField, seriesField, aggregation, ordering);
+  if (type === 'combo') return comboChart(rows, xField, yField, secondaryField, aggregation, ordering);
   if (type === 'donut') return donutChart(rows, xField, yField, aggregation, ordering);
   if (type === 'scatter') return scatterChart(rows, xField, yField);
   if (type === 'histogram') return histogramChart(rows, yField);
@@ -415,6 +496,7 @@ export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'or
   if (type === 'bubble-map') return mapChart(rows, xField, yField, true);
   if (type === 'density-map') return densityMapChart(rows, xField, yField);
   if (type === 'heatmap') return heatmapChart(rows, xField, yField);
+  if (type === 'correlation') return correlationChart(rows);
   if (type === 'funnel') return funnelChart(rows, xField, yField, aggregation, ordering);
   if (type === 'waterfall') return waterfallChart(rows, xField, yField, aggregation, ordering);
   if (type === 'radar') return radarChart(rows, xField, yField, aggregation, ordering);

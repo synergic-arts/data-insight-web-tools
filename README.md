@@ -4,7 +4,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 
 ## Incluye
 
-- **Dashboard Studio**: KPIs, tablas y 18 familias de visualización: barras simples, agrupadas y apiladas, líneas, áreas, anillos, dispersión, histogramas, cajas, mapas de puntos, mapas de burbujas, densidad por cuadrícula WGS84, calor bivariado, embudo, cascada, radar, treemap y Pareto.
+- **Dashboard Studio**: KPIs, tablas y 21 familias de visualización: barras simples, agrupadas y apiladas, líneas, áreas simples y apiladas, combinado de barras y línea, anillos, dispersión, histogramas, cajas, mapas de puntos, mapas de burbujas, densidad por cuadrícula WGS84, calor bivariado, matriz de correlación, embudo, cascada, radar, treemap y Pareto.
 - **Data Profiler**: vacíos, duplicados exactos, tipos, cardinalidad, media, mediana, rangos y cobertura por campo.
 - **Transform Lab**: filtros combinados, búsqueda, campos calculados aritméticos y exportación.
 - **Pivot Lab**: agrupaciones y agregaciones locales por categoría, comparación visual y exportación del resumen.
@@ -15,6 +15,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Visuales con título, orden por valor y configuración persistida; exportación CSV o JSON de la población visible con filtros y procedencia.
 - Dashboard responsive de 12 columnas: tarjetas arrastrables, movimiento arriba/abajo, ajuste de ancho y alto, edición por tarjeta, autoorganización adaptada a escritorio/tableta/móvil y modo Autodashboard según el esquema detectado.
 - Series por color para comparar una segunda dimensión en barras agrupadas o apiladas; Pareto ordenado con acumulado y leyendas compactas.
+- Comparación de dos métricas en un gráfico combinado, composición temporal mediante áreas apiladas y matriz de correlación lineal para todos los campos numéricos compatibles.
 - Escalas firmadas para gráficos de barras y líneas, con línea cero y tooltips accesibles para valores negativos y positivos.
 - Recuento automático por categoría cuando el conjunto no contiene métricas numéricas; el anillo rechaza valores negativos o sin total interpretable.
 - Detección de coordenadas por alias habituales (`lat`, `latitude`, `latitud`, `lon`, `lng`, `longitude`, `longitud`, `x`, `y`), mapas de puntos con tooltips por registro y burbujas agregadas por coordenadas coincidentes; el mapa no inventa una cartografía base cuando solo hay coordenadas.
@@ -22,8 +23,8 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Exportación SVG de la visualización activa para conservar escala vectorial, etiquetas y tooltips del gráfico en un archivo portable.
 - Panel automático enriquecido: añade suma, media, completitud, distribución, evolución temporal, relación entre métricas, puntos espaciales, densidad y tabla cuando el esquema contiene los campos necesarios.
 - Resumen analítico local con campos incompletos, rangos, valores atípicos IQR, variación temporal, correlación descriptiva y recomendaciones de visualización; no afirma causalidad.
-- Órdenes de dashboard en lenguaje natural sin servidor: reconoce peticiones de mapas, calor bivariado, dispersión, histogramas, cajas, anillos, líneas, áreas, barras agrupadas/apiladas, Pareto, embudos, cascadas, radar y treemap; valida los campos disponibles y añade la visual resultante al panel.
-- Órdenes locales de tratamiento en lenguaje natural: elimina duplicados, quita filas vacías, rellena faltantes con media/moda o un valor indicado, limpia espacios y crea campos normalizados min–max; cada cambio queda en un historial reversible con `Deshacer`.
+- Órdenes de dashboard en lenguaje natural sin servidor: reconoce peticiones de mapas, calor bivariado, dispersión, histogramas, cajas, anillos, líneas, áreas simples/apiladas, gráficos combinados, matriz de correlación, barras agrupadas/apiladas, Pareto, embudos, cascadas, radar y treemap; valida los campos disponibles y añade la visual resultante al panel.
+- Órdenes locales de tratamiento en lenguaje natural: elimina duplicados, quita filas vacías, rellena faltantes con media/moda o un valor indicado, limpia espacios, crea campos normalizados min–max, marca atípicos por IQR y segmenta métricas en Bajo/Medio/Alto; cada cambio queda en un historial reversible con `Deshacer`.
 - Asistente local con resumen determinista, panel recomendado y compatibilidad opcional con Gemini Nano mediante la Prompt API de Chrome. La IA solo se inicia tras una acción explícita y no sustituye la validación de unidades, proyección ni semántica.
 - Gemini Nano puede devolver un plan JSON validado contra el esquema real y aplicar una visualización o tratamiento permitido; el plan no puede inventar campos y los tratamientos siguen pasando por la ruta local reversible.
 - El resumen automático incluye mediana, desviación estándar descriptiva, correlación, pendiente y R² de regresión descriptiva cuando hay pares numéricos; se muestran como asociación, no como causalidad ni predicción.

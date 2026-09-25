@@ -29,6 +29,7 @@ export const state = {
   activeTab: 'overview',
   xField: 'province',
   yField: 'finds',
+  secondaryField: '',
   chartType: 'bar',
   seriesField: '',
   chartSort: 'original',
@@ -194,6 +195,7 @@ export function loadRows(rows, meta = {}) {
   state.sortDir = 'asc';
   state.tableLimit = 20;
   state.chartType = 'bar';
+  state.secondaryField = '';
   state.seriesField = '';
   state.chartSort = 'original';
   state.chartTitle = 'Visualización principal';
