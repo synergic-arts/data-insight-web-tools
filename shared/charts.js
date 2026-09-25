@@ -1,4 +1,4 @@
-import { state, esc, format, toNumber, toCoordinate, isMissing } from './data.js?v=20260925-23';
+import { state, esc, format, toNumber, toCoordinate, isMissing } from './data.js?v=20260925-24';
 
 const COLORS = ['#67e8f9', '#a78bfa', '#fbbf24', '#34d399', '#fb7185', '#60a5fa', '#c084fc', '#2dd4bf', '#f97316', '#f472b6'];
 

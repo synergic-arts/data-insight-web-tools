@@ -65,7 +65,7 @@ export function toCoordinate(value) {
   const text = String(value).trim();
   const hemisphere = text.match(/([NSEW])\s*$/i)?.[1]?.toUpperCase() || '';
   const parts = text.replace(/[NSEW]/gi, '').match(/[+-]?\d+(?:[.,]\d+)?/g);
-  if (parts && parts.length >= 2 && /[°º'′"″:]/.test(text)) {
+  if (parts && parts.length >= 2 && (/[°º'′"″:]/.test(text) || (hemisphere && parts.length >= 3))) {
     const degrees = Number(parts[0].replace(',', '.'));
     const minutes = Number(parts[1].replace(',', '.')) || 0;
     const seconds = Number(parts[2]?.replace(',', '.') || 0);
@@ -115,8 +115,8 @@ export function geoFields(columns = state.columns) {
   const names = columns.map(column => column.name);
   const find = patterns => names.find(name => patterns.some(pattern => pattern.test(name))) || '';
   return {
-    longitude: find([/^lon(?:gitude)?(?:[_ -]?wgs84)?$/i, /^lng(?:[_ -]?wgs84)?$/i, /longitud/i, /longitude/i, /coord[_ ]?x/i, /^x$/i]),
-    latitude: find([/^lat(?:itude)?(?:[_ -]?wgs84)?$/i, /latitud/i, /latitude/i, /coord[_ ]?y/i, /^y$/i])
+    longitude: find([/^lon(?:gitude)?(?:[_ -]?wgs84)?$/i, /^lng(?:[_ -]?wgs84)?$/i, /longitud/i, /longitude/i, /coord[_ ]?x/i, /easting|este(?:_?x)?/i, /^x$/i]),
+    latitude: find([/^lat(?:itude)?(?:[_ -]?wgs84)?$/i, /latitud/i, /latitude/i, /coord[_ ]?y/i, /northing|norte(?:_?y)?/i, /^y$/i])
   };
 }
 
@@ -179,14 +179,44 @@ export function parseAny(text, fileName = '') {
       const parsed = JSON.parse(trimmed);
       if (parsed.type === 'FeatureCollection' && Array.isArray(parsed.features)) {
         const declaredCRS = parsed.crs?.properties?.name || parsed.crs?.properties?.href || parsed.crs?.name || '';
-        const isWebMercator = /3857|900913|web.?mercator/i.test(String(declaredCRS));
+        const crsText = String(declaredCRS);
+        const isWebMercator = /3857|900913|web.?mercator/i.test(crsText);
+        const utmMatch = crsText.match(/(?:258|326|327)(\d{2})/i);
+        const utmZone = utmMatch ? Number(utmMatch[1]) : null;
+        const isUtm = Number.isInteger(utmZone) && utmZone >= 1 && utmZone <= 60;
+        const utmSouthern = /327\d{2}/i.test(crsText);
         const projectPair = pair => {
-          if (!isWebMercator) return pair;
-          const radius = 6378137;
-          const longitude = pair[0] / radius * 180 / Math.PI;
-          const normalizedY = pair[1] / radius * 180 / Math.PI;
-          const latitude = 180 / Math.PI * (2 * Math.atan(Math.exp(normalizedY * Math.PI / 180)) - Math.PI / 2);
-          return [longitude, latitude];
+          if (isWebMercator) {
+            const radius = 6378137;
+            const longitude = pair[0] / radius * 180 / Math.PI;
+            const normalizedY = pair[1] / radius * 180 / Math.PI;
+            const latitude = 180 / Math.PI * (2 * Math.atan(Math.exp(normalizedY * Math.PI / 180)) - Math.PI / 2);
+            return [longitude, latitude];
+          }
+          if (isUtm) {
+            const a = 6378137;
+            const eccentricitySquared = 0.00669438;
+            const eccentricityPrimeSquared = eccentricitySquared / (1 - eccentricitySquared);
+            const k0 = 0.9996;
+            const x = pair[0] - 500000;
+            const y = utmSouthern ? pair[1] - 10000000 : pair[1];
+            const meridionalArc = y / k0;
+            const mu = meridionalArc / (a * (1 - eccentricitySquared / 4 - 3 * eccentricitySquared ** 2 / 64 - 5 * eccentricitySquared ** 3 / 256));
+            const e1 = (1 - Math.sqrt(1 - eccentricitySquared)) / (1 + Math.sqrt(1 - eccentricitySquared));
+            const phi1 = mu + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu) + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * Math.sin(4 * mu) + (151 * e1 ** 3 / 96) * Math.sin(6 * mu) + (1097 * e1 ** 4 / 512) * Math.sin(8 * mu);
+            const sinPhi = Math.sin(phi1);
+            const cosPhi = Math.cos(phi1);
+            const tanPhi = Math.tan(phi1);
+            const n1 = a / Math.sqrt(1 - eccentricitySquared * sinPhi ** 2);
+            const t1 = tanPhi ** 2;
+            const c1 = eccentricityPrimeSquared * cosPhi ** 2;
+            const r1 = a * (1 - eccentricitySquared) / (1 - eccentricitySquared * sinPhi ** 2) ** 1.5;
+            const d = x / (n1 * k0);
+            const latitude = phi1 - (n1 * tanPhi / r1) * (d ** 2 / 2 - (5 + 3 * t1 + 10 * c1 - 4 * c1 ** 2 - 9 * eccentricityPrimeSquared) * d ** 4 / 24 + (61 + 90 * t1 + 298 * c1 + 45 * t1 ** 2 - 252 * eccentricityPrimeSquared - 3 * c1 ** 2) * d ** 6 / 720);
+            const longitude = (utmZone * 6 - 183) * Math.PI / 180 + (d - (1 + 2 * t1 + c1) * d ** 3 / 6 + (5 - 2 * c1 + 28 * t1 - 3 * c1 ** 2 + 8 * eccentricityPrimeSquared + 24 * t1 ** 2) * d ** 5 / 120) / cosPhi;
+            return [longitude * 180 / Math.PI, latitude * 180 / Math.PI];
+          }
+          return pair;
         };
         return parsed.features.filter(feature => feature && typeof feature === 'object').map((feature, index) => {
           const properties = { ...(feature.properties || {}), feature_id: feature.id ?? index + 1 };
@@ -203,7 +233,7 @@ export function parseAny(text, fileName = '') {
             }
           }
           properties.geometry_type = feature.geometry?.type || '';
-          if (declaredCRS) properties.coordinate_crs = isWebMercator ? `EPSG:4326 · convertido desde ${declaredCRS}` : declaredCRS;
+          if (declaredCRS) properties.coordinate_crs = isWebMercator || isUtm ? `EPSG:4326 · convertido desde ${declaredCRS}` : declaredCRS;
           return properties;
         });
       }
