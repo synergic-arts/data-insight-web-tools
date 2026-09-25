@@ -1,5 +1,5 @@
-import { DEMO_ROWS, state, esc, format, toNumber, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js?v=20260925-26';
-import { chartSVG, tableHTML } from './charts.js?v=20260925-26';
+import { DEMO_ROWS, state, esc, format, toNumber, toCoordinate, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js?v=20260925-27';
+import { chartSVG, tableHTML } from './charts.js?v=20260925-27';
 
 const root = document.body;
 const transformationHistory = [];
@@ -8,6 +8,14 @@ const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'ana
 const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
 const CHART_TYPES = ['bar', 'grouped-bar', 'stacked-bar', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'funnel', 'waterfall', 'radar', 'treemap', 'sankey', 'pareto'];
 const CHART_LABELS = { bar: 'Barras', 'grouped-bar': 'Barras agrupadas', 'stacked-bar': 'Barras apiladas', line: 'Línea', area: 'Área', 'stacked-area': 'Área apilada', combo: 'Combinado', forecast: 'Proyección', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', heatmap: 'Mapa de calor bivariado', correlation: 'Matriz de correlación', funnel: 'Embudo', waterfall: 'Cascada', radar: 'Radar', treemap: 'Treemap', sankey: 'Sankey de flujos', pareto: 'Pareto' };
+const MAP_BASES = {
+  osm: { label: 'OpenStreetMap', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 },
+  light: { label: 'Esri calles', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', maxZoom: 19 },
+  dark: { label: 'Esri oscuro', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', maxZoom: 16 },
+  satellite: { label: 'Esri World Imagery', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', maxZoom: 19 }
+};
+const MAP_CHART_TYPES = ['map', 'bubble-map', 'density-map'];
+const leafletMaps = new Set();
 const AGGREGATIONS = ['sum', 'avg', 'median', 'min', 'max', 'count', 'distinct'];
 const AGGREGATION_LABELS = { sum: 'Suma', avg: 'Media', median: 'Mediana', min: 'Mínimo', max: 'Máximo', count: 'Recuento', distinct: 'Valores distintos' };
 const SORT_MODES = ['original', 'value-desc', 'value-asc'];
@@ -20,6 +28,7 @@ const safeField = (value, fallback, type = '') => hasColumn(value, type) ? value
 const coordinates = () => geoFields(state.columns);
 const firstTextField = () => state.columns.find(column => column.type === 'text')?.name || state.columns[0]?.name || '';
 const firstNumericField = () => state.columns.find(column => column.type === 'number')?.name || '';
+const mapBaseOptions = selected => Object.entries(MAP_BASES).map(([value, base]) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(base.label)}</option>`).join('');
 
 function bestSeriesField(exclude = '') {
   const preferred = /category|categoría|status|estado|tipo|group|grupo|class|clase/i;
@@ -104,7 +113,7 @@ function sanitizeDashboard(raw) {
     const yField = safeField(card.yField, state.yField, aggregation === 'count' ? '' : 'number');
     const seriesField = hasColumn(card.seriesField) && card.seriesField !== xField ? card.seriesField : '';
     const secondaryField = hasColumn(card.secondaryField, 'number') && card.secondaryField !== yField ? card.secondaryField : '';
-    return withLayout({ id, type, title: title || 'Visualización', chartType: CHART_TYPES.includes(card.chartType) ? card.chartType : 'bar', xField, yField, secondaryField, seriesField, aggregation, chartSort: SORT_MODES.includes(card.chartSort) ? card.chartSort : 'original', colSpan: card.colSpan, rowSpan: card.rowSpan });
+    return withLayout({ id, type, title: title || 'Visualización', chartType: CHART_TYPES.includes(card.chartType) ? card.chartType : 'bar', xField, yField, secondaryField, seriesField, aggregation, mapBase: MAP_BASES[card.mapBase] ? card.mapBase : 'osm', chartSort: SORT_MODES.includes(card.chartSort) ? card.chartSort : 'original', colSpan: card.colSpan, rowSpan: card.rowSpan });
   });
   return { cards };
 }
@@ -173,6 +182,7 @@ function renderMeta() {
 }
 
 function renderAll() {
+  destroyLeafletMaps();
   applyFilters();
   renderMeta();
   const info = pageInfo(state.activeTab);
@@ -182,6 +192,7 @@ function renderAll() {
   document.querySelectorAll('[data-tab]').forEach(button => button.classList.toggle('active', button.dataset.tab === state.activeTab));
   document.querySelector('#app-content').innerHTML = renderContent();
   enhanceAnalyzeUI();
+  mountLeafletMaps();
 }
 
 function renderContent() {
@@ -202,6 +213,70 @@ function renderKpi(metric, field) {
   return `<div class="kpi-value">${format(value, metric === 'avg' ? 1 : 0)}</div><div class="kpi-label">${esc(label)}</div><div class="kpi-detail">${esc(detail)}</div>`;
 }
 
+function destroyLeafletMaps() {
+  leafletMaps.forEach(map => map.remove());
+  leafletMaps.clear();
+}
+
+function mapPopup(row, index, longitude, latitude) {
+  const name = row.name ?? row.site ?? row.title ?? `Fila ${index + 1}`;
+  const attributes = Object.entries(row).map(([key, value]) => `<tr><th>${esc(key)}</th><td>${esc(value)}</td></tr>`).join('');
+  return `<div class="leaflet-popup-title">${esc(name)}</div><div class="leaflet-popup-coords">${format(longitude, 5)}°, ${format(latitude, 5)}°</div><table class="leaflet-popup-table">${attributes}</table>`;
+}
+
+function mountLeafletMaps() {
+  if (!window.L) return;
+  document.querySelectorAll('[data-leaflet-chart]').forEach(host => {
+    let config;
+    try { config = JSON.parse(host.dataset.leafletChart); } catch { host.innerHTML = '<div class="empty-chart"><strong>Configuración de mapa no válida</strong></div>'; return; }
+    const points = state.filtered.map((row, index) => ({ row, index, longitude: toCoordinate(row[config.longitudeField]), latitude: toCoordinate(row[config.latitudeField]) })).filter(item => item.longitude !== null && item.latitude !== null && Math.abs(item.longitude) <= 180 && Math.abs(item.latitude) <= 90).slice(0, 2000);
+    if (!points.length) { host.innerHTML = '<div class="empty-chart"><span>⌖</span><strong>No hay coordenadas visibles</strong><small>Selecciona campos de longitud y latitud válidos o cambia los filtros.</small></div>'; return; }
+    host.classList.add('leaflet-chart-mounted');
+    host.innerHTML = '';
+    const map = L.map(host, { zoomControl: true, preferCanvas: true, attributionControl: true }).setView([40.2, -3.7], 5);
+    const bases = {};
+    Object.entries(MAP_BASES).forEach(([key, base]) => { bases[base.label] = L.tileLayer(base.url, { maxZoom: base.maxZoom, attribution: base.attribution, crossOrigin: true }); });
+    const selectedBase = MAP_BASES[config.mapBase] ? MAP_BASES[config.mapBase].label : MAP_BASES.osm.label;
+    bases[selectedBase].addTo(map);
+    const dataLayer = L.layerGroup().addTo(map);
+    const densityLayer = L.layerGroup();
+    const groups = new Map();
+    points.forEach(point => {
+      const key = config.type === 'map' ? `${point.index}` : `${point.longitude.toFixed(3)}|${point.latitude.toFixed(3)}`;
+      const current = groups.get(key) || { ...point, count: 0, rows: [] };
+      current.count += 1;
+      current.rows.push(point);
+      groups.set(key, current);
+    });
+    if (config.type === 'density-map') points.forEach(point => {
+      const marker = L.circleMarker([point.latitude, point.longitude], { radius: 4, color: '#fef3c7', weight: 1, fillColor: '#67e8f9', fillOpacity: .45 });
+      marker.bindPopup(mapPopup(point.row, point.index, point.longitude, point.latitude));
+      dataLayer.addLayer(marker);
+    });
+    const renderPoints = [...groups.values()];
+    renderPoints.forEach((point, index) => {
+      const label = point.row.name ?? point.row.site ?? point.row.title ?? `Fila ${point.index + 1}`;
+      const radius = config.type === 'map' ? 6 : Math.min(26, 7 + Math.sqrt(point.count) * (config.type === 'density-map' ? 4 : 5));
+      const marker = L.circleMarker([point.latitude, point.longitude], { radius, color: '#071924', weight: 1.5, fillColor: config.type === 'density-map' ? '#fbbf24' : '#67e8f9', fillOpacity: config.type === 'density-map' ? Math.min(.86, .3 + point.count / Math.max(1, renderPoints.length)) : .84 });
+      const sourceRow = point.row;
+      marker.bindPopup(mapPopup(sourceRow, point.index, point.longitude, point.latitude));
+      marker.bindTooltip(`${esc(label)} · ${point.count} registro${point.count === 1 ? '' : 's'}`, { direction: 'top', sticky: true });
+      (config.type === 'density-map' ? densityLayer : dataLayer).addLayer(marker);
+    });
+    const overlays = { 'Datos visibles': dataLayer };
+    if (config.type === 'density-map') overlays['Densidad agregada'] = densityLayer;
+    L.control.layers(bases, overlays, { collapsed: true, position: 'topright' }).addTo(map);
+    if (config.type === 'density-map') densityLayer.addTo(map);
+    const bounds = L.latLngBounds(points.map(point => [point.latitude, point.longitude]));
+    if (bounds.isValid()) map.fitBounds(bounds.pad(.12), { maxZoom: 14 });
+    const caption = document.createElement('div');
+    caption.className = 'leaflet-caption';
+    caption.textContent = `${points.length} coordenadas · ${MAP_BASES[config.mapBase]?.label || MAP_BASES.osm.label}`;
+    host.appendChild(caption);
+    leafletMaps.add(map);
+  });
+}
+
 function cardActions(card) {
   const configure = card.type === 'chart' ? `<button class="card-action" data-action="configure-card" data-id="${esc(card.id)}" title="Personalizar visual" aria-label="Personalizar visual">⚙</button>` : '';
   return `<div class="card-actions"><button class="card-action" data-action="move-card" data-delta="-1" data-id="${esc(card.id)}" title="Mover arriba" aria-label="Mover arriba">↑</button><button class="card-action" data-action="move-card" data-delta="1" data-id="${esc(card.id)}" title="Mover abajo" aria-label="Mover abajo">↓</button><button class="card-action" data-action="resize-card" data-axis="col" data-delta="-1" data-id="${esc(card.id)}" title="Reducir ancho" aria-label="Reducir ancho">↔−</button><button class="card-action" data-action="resize-card" data-axis="col" data-delta="1" data-id="${esc(card.id)}" title="Aumentar ancho" aria-label="Aumentar ancho">↔＋</button><button class="card-action" data-action="resize-card" data-axis="row" data-delta="-1" data-id="${esc(card.id)}" title="Reducir alto" aria-label="Reducir alto">↕−</button><button class="card-action" data-action="resize-card" data-axis="row" data-delta="1" data-id="${esc(card.id)}" title="Aumentar alto" aria-label="Aumentar alto">↕＋</button>${configure}<button class="card-action" data-action="rename-card" data-id="${esc(card.id)}" title="Renombrar tarjeta" aria-label="Renombrar tarjeta">✎</button><button class="card-action" data-action="duplicate-card" data-id="${esc(card.id)}" title="Duplicar tarjeta" aria-label="Duplicar tarjeta">⧉</button><button class="card-action" data-action="remove-card" data-id="${esc(card.id)}" title="Quitar tarjeta" aria-label="Quitar tarjeta">×</button></div>`;
@@ -211,7 +286,7 @@ function cardHTML(card) {
   const attrs = `data-card-id="${esc(card.id)}" draggable="true" style="--card-col:${safeSpan(card.colSpan, layoutDefaults(card).colSpan)};--card-row:${safeSpan(card.rowSpan, layoutDefaults(card).rowSpan, 4)}"`;
   if (card.type === 'kpi') return `<article class="kpi-card dashboard-card" ${attrs}><div class="kpi-icon">${card.metric === 'complete' ? '◒' : card.metric === 'rows' ? '▤' : 'Σ'}</div>${renderKpi(card.metric, card.field)}${cardActions(card)}</article>`;
   if (card.type === 'table') return `<article class="panel dashboard-card card-table" ${attrs}><div class="panel-heading"><div><span class="eyebrow">Tabla</span><h3>${esc(card.title || 'Registros')}</h3></div>${cardActions(card)}</div>${tableHTML(state.filtered, state.columns, 8)}</article>`;
-  return `<article class="panel dashboard-card card-chart" ${attrs}><div class="panel-heading"><div><span class="eyebrow">Visual</span><h3>${esc(card.title || 'Visualización')}</h3></div>${cardActions(card)}</div><div class="chart-wrap">${chartSVG(card.chartType || 'bar', state.filtered, card.xField || state.xField, card.yField || state.yField, card.aggregation || 'sum', card.chartSort || 'original', card.seriesField || '', card.secondaryField || '')}</div></article>`;
+  return `<article class="panel dashboard-card card-chart" ${attrs}><div class="panel-heading"><div><span class="eyebrow">Visual</span><h3>${esc(card.title || 'Visualización')}</h3></div>${cardActions(card)}</div><div class="chart-wrap">${chartSVG(card.chartType || 'bar', state.filtered, card.xField || state.xField, card.yField || state.yField, card.aggregation || 'sum', card.chartSort || 'original', card.seriesField || '', card.secondaryField || '', card.mapBase || 'osm')}</div></article>`;
 }
 
 function renderOverview() {
@@ -255,7 +330,7 @@ function renderAnalyze() {
   const helper = hasMetric ? `Los gráficos se calculan en memoria con las filas filtradas. ${geo.longitude && geo.latitude ? `Se detectan coordenadas ${geo.longitude}/${geo.latitude}; prueba un mapa de puntos, burbujas o densidad.` : 'Puedes cargar un GeoJSON o campos lon/lat para activar el mapa.'} ${flow.source && flow.target ? `Se detecta un flujo ${flow.source} → ${flow.target}; prueba el Sankey.` : ''} ${analysisNumericColumns().length > 1 ? 'El mapa de calor, el combinado y la matriz de correlación comparan métricas compatibles.' : ''}` : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
   const previewTitle = state.chartTitle || `${state.yField} por ${state.xField}`;
   const chartOptions = Object.entries(CHART_LABELS).map(([value, label]) => `<option value="${value}" ${state.chartType === value ? 'selected' : ''}>${label}</option>`).join('');
-  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Métrica secundaria<span>${fieldSelect('secondary-field', state.secondaryField, true, true, 'Sin segunda métrica')}</span></label><label>Serie / color<span>${fieldSelect('series-field', state.seriesField, false, true)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Agregación<select id="aggregation">${aggregationOptions(aggregation, hasMetric)}</select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper} Las agregaciones numéricas incluyen suma, media, mediana, mínimo y máximo; también puedes contar filas o valores distintos.</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><div class="panel-heading-actions"><span class="panel-note">${format(state.filtered.length, 0)} filas</span><button class="button button-ghost" data-action="export-svg">Exportar SVG</button></div></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort, state.seriesField, state.secondaryField)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
+  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Métrica secundaria<span>${fieldSelect('secondary-field', state.secondaryField, true, true, 'Sin segunda métrica')}</span></label><label>Serie / color<span>${fieldSelect('series-field', state.seriesField, false, true)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Mapa base<span><select id="map-base" ${MAP_CHART_TYPES.includes(state.chartType) ? '' : 'disabled'}>${mapBaseOptions(state.mapBase || 'osm')}</select></span></label><label>Agregación<select id="aggregation">${aggregationOptions(aggregation, hasMetric)}</select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper} Las agregaciones numéricas incluyen suma, media, mediana, mínimo y máximo; también puedes contar filas o valores distintos. En mapas Leaflet puedes cambiar la base, activar capas y abrir los atributos de cada registro.</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><div class="panel-heading-actions"><span class="panel-note">${format(state.filtered.length, 0)} filas</span><button class="button button-ghost" data-action="export-svg">Exportar SVG</button></div></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort, state.seriesField, state.secondaryField, state.mapBase || 'osm')}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
 }
 
 function enhanceAnalyzeUI() {
@@ -266,7 +341,7 @@ function enhanceAnalyzeUI() {
   if (!addButton) return;
   addButton.insertAdjacentHTML('beforebegin', `<label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label>`);
   const preview = document.querySelector('.analysis-result .chart-wrap');
-  if (preview) preview.innerHTML = chartSVG(state.chartType, state.filtered, state.xField, state.yField, state.aggregation, state.chartSort, state.seriesField, state.secondaryField);
+  if (preview) preview.innerHTML = chartSVG(state.chartType, state.filtered, state.xField, state.yField, state.aggregation, state.chartSort, state.seriesField, state.secondaryField, state.mapBase || 'osm');
   const heading = document.querySelector('.analysis-result .panel-heading h3');
   if (heading) heading.textContent = state.chartTitle || 'Visualización principal';
 }
@@ -430,7 +505,7 @@ function applyLocalPlan(plan) {
   state.aggregation = aggregation;
   state.chartSort = chartSort;
   state.chartTitle = title;
-  state.dashboard.cards.push({ id: `gemini-${Date.now()}`, type: 'chart', title, chartType, xField, yField, secondaryField, seriesField, aggregation, chartSort });
+  state.dashboard.cards.push({ id: `gemini-${Date.now()}`, type: 'chart', title, chartType, xField, yField, secondaryField, seriesField, aggregation, mapBase: state.mapBase || 'osm', chartSort });
   state.activeTab = 'overview';
   renderAll();
   announce(`Plan de Gemini Nano aplicado: ${CHART_LABELS[chartType]}.`);
@@ -506,6 +581,7 @@ function rememberTransformation(label) {
     yField: state.yField,
     secondaryField: state.secondaryField,
     chartType: state.chartType,
+    mapBase: state.mapBase || 'osm',
     chartSort: state.chartSort,
     chartTitle: state.chartTitle,
     aggregation: state.aggregation,
@@ -522,6 +598,7 @@ function restoreTransformation(snapshot) {
   state.yField = safeField(snapshot.yField, state.yField, 'number');
   state.secondaryField = hasColumn(snapshot.secondaryField, 'number') && snapshot.secondaryField !== state.yField ? snapshot.secondaryField : '';
   state.chartType = CHART_TYPES.includes(snapshot.chartType) ? snapshot.chartType : 'bar';
+  state.mapBase = MAP_BASES[snapshot.mapBase] ? snapshot.mapBase : 'osm';
   state.chartSort = SORT_MODES.includes(snapshot.chartSort) ? snapshot.chartSort : 'original';
   state.chartTitle = typeof snapshot.chartTitle === 'string' && snapshot.chartTitle.trim() ? snapshot.chartTitle : 'Visualización principal';
   state.aggregation = AGGREGATIONS.includes(snapshot.aggregation) ? snapshot.aggregation : 'sum';
@@ -713,7 +790,7 @@ function executeAssistantCommand(command) {
   state.aggregation = plan.aggregation;
   state.chartSort = plan.chartSort;
   state.chartTitle = plan.title;
-  state.dashboard.cards.push({ id: `assistant-${Date.now()}`, type: 'chart', title: plan.title, chartType: plan.chartType, xField: plan.xField, yField: plan.yField, secondaryField: plan.secondaryField || '', seriesField: plan.seriesField || '', aggregation: plan.aggregation, chartSort: plan.chartSort });
+  state.dashboard.cards.push({ id: `assistant-${Date.now()}`, type: 'chart', title: plan.title, chartType: plan.chartType, xField: plan.xField, yField: plan.yField, secondaryField: plan.secondaryField || '', seriesField: plan.seriesField || '', aggregation: plan.aggregation, mapBase: state.mapBase || 'osm', chartSort: plan.chartSort });
   state.activeTab = 'overview';
   renderAll();
   announce(`Orden aplicada: ${CHART_LABELS[plan.chartType]} con ${plan.xField} y ${plan.yField}.`);
@@ -802,7 +879,7 @@ function exportJSON() {
 
 function exportSVG() {
   const svg = document.querySelector('.analysis-result .chart-svg');
-  if (!svg) { announce('No hay una visualización SVG activa para exportar.', 'error'); return; }
+  if (!svg) { announce(document.querySelector('.analysis-result .leaflet-chart-host') ? 'Los mapas Leaflet son interactivos; usa la captura del navegador para conservar sus teselas.' : 'No hay una visualización SVG activa para exportar.', 'error'); return; }
   const serialized = new XMLSerializer().serializeToString(svg);
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n${serialized}`;
   const slug = (state.chartTitle || 'visualizacion').replace(/[^\wáéíóúüñ-]+/gi, '-').slice(0, 48) || 'visualizacion';
@@ -811,7 +888,7 @@ function exportSVG() {
 }
 
 function saveProject() {
-  const project = { format: 'data-insight-project', version: 5, savedAt: new Date().toISOString(), meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail }, rows: state.rows, filters: state.filters, search: state.search, activeTab: state.activeTab, xField: state.xField, yField: state.yField, secondaryField: state.secondaryField, seriesField: state.seriesField, chartType: state.chartType, chartSort: state.chartSort, chartTitle: state.chartTitle, aggregation: state.aggregation, sortKey: state.sortKey, sortDir: state.sortDir, tableLimit: state.tableLimit, dashboard: state.dashboard };
+  const project = { format: 'data-insight-project', version: 6, savedAt: new Date().toISOString(), meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail }, rows: state.rows, filters: state.filters, search: state.search, activeTab: state.activeTab, xField: state.xField, yField: state.yField, secondaryField: state.secondaryField, seriesField: state.seriesField, chartType: state.chartType, mapBase: state.mapBase || 'osm', chartSort: state.chartSort, chartTitle: state.chartTitle, aggregation: state.aggregation, sortKey: state.sortKey, sortDir: state.sortDir, tableLimit: state.tableLimit, dashboard: state.dashboard };
   download(`${state.datasetName.replace(/[^\wáéíóúüñ-]+/gi, '-').slice(0, 48) || 'proyecto'}.data-insight.json`, JSON.stringify(project, null, 2), 'application/json;charset=utf-8');
   announce('Proyecto guardado. Puedes abrirlo de nuevo desde la barra lateral.');
 }
@@ -881,6 +958,7 @@ async function importProject(file) {
     state.secondaryField = hasColumn(project.secondaryField, 'number') && project.secondaryField !== state.yField ? project.secondaryField : '';
     state.seriesField = hasColumn(project.seriesField) && project.seriesField !== state.xField ? project.seriesField : '';
     state.chartType = CHART_TYPES.includes(project.chartType) ? project.chartType : 'bar';
+    state.mapBase = MAP_BASES[project.mapBase] ? project.mapBase : 'osm';
     state.chartSort = SORT_MODES.includes(project.chartSort) ? project.chartSort : 'original';
     state.chartTitle = typeof project.chartTitle === 'string' && project.chartTitle.trim() ? project.chartTitle.trim().slice(0, 80) : 'Visualización principal';
     state.aggregation = AGGREGATIONS.includes(project.aggregation) ? project.aggregation : 'sum';
@@ -968,7 +1046,7 @@ function showCardEditor(card) {
   const chartOptions = Object.entries(CHART_LABELS).map(([value, label]) => '<option value="' + esc(value) + '"' + (value === card.chartType ? ' selected' : '') + '>' + esc(label) + '</option>').join('');
   const seriesOptions = '<option value="">Sin serie</option>' + selectOptions(fields, card.seriesField);
   const numericOptions = '<option value="">Sin segunda métrica</option>' + selectOptions(state.columns.filter(column => column.type === 'number').map(column => column.name), card.secondaryField);
-  const markup = '<div id="card-editor-modal" class="modal-backdrop"><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="card-editor-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Personalizar visual</span><h2 id="card-editor-title">' + esc(card.title || 'Visualización') + '</h2></div><button class="remove-card" data-modal-action="close-card-editor" aria-label="Cerrar ventana">×</button></div><div class="editor-grid"><label>Título<input id="card-editor-name" type="text" maxlength="100" value="' + esc(card.title || '') + '"></label><label>Tipo<select id="card-editor-type">' + chartOptions + '</select></label><label>Dimensión / X<select id="card-editor-x">' + selectOptions(fields, card.xField) + '</select></label><label>Métrica / Y<select id="card-editor-y">' + selectOptions(fields, card.yField) + '</select></label><label>Métrica secundaria<select id="card-editor-secondary">' + numericOptions + '</select></label><label>Serie / color<select id="card-editor-series">' + seriesOptions + '</select></label><label>Agregación<select id="card-editor-aggregation">' + selectOptions(AGGREGATIONS, card.aggregation) + '</select></label><label>Orden<select id="card-editor-sort">' + selectOptions(SORT_MODES, card.chartSort) + '</select></label></div><p class="helper">El combinado usa barras y línea con dos métricas; las áreas apiladas y barras comparan una segunda dimensión. Los mapas necesitan longitud y latitud; la dispersión, el calor y la matriz necesitan campos numéricos.</p><div class="modal-actions"><button class="button button-ghost" data-modal-action="close-card-editor">Cancelar</button><button class="button button-primary" data-modal-action="save-card-editor">Guardar visual</button></div></div></div>';
+  const markup = '<div id="card-editor-modal" class="modal-backdrop"><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="card-editor-title" tabindex="-1"><div class="panel-heading"><div><span class="eyebrow">Personalizar visual</span><h2 id="card-editor-title">' + esc(card.title || 'Visualización') + '</h2></div><button class="remove-card" data-modal-action="close-card-editor" aria-label="Cerrar ventana">×</button></div><div class="editor-grid"><label>Título<input id="card-editor-name" type="text" maxlength="100" value="' + esc(card.title || '') + '"></label><label>Tipo<select id="card-editor-type">' + chartOptions + '</select></label><label>Mapa base<select id="card-editor-map-base">' + mapBaseOptions(card.mapBase || 'osm') + '</select></label><label>Dimensión / X<select id="card-editor-x">' + selectOptions(fields, card.xField) + '</select></label><label>Métrica / Y<select id="card-editor-y">' + selectOptions(fields, card.yField) + '</select></label><label>Métrica secundaria<select id="card-editor-secondary">' + numericOptions + '</select></label><label>Serie / color<select id="card-editor-series">' + seriesOptions + '</select></label><label>Agregación<select id="card-editor-aggregation">' + selectOptions(AGGREGATIONS, card.aggregation) + '</select></label><label>Orden<select id="card-editor-sort">' + selectOptions(SORT_MODES, card.chartSort) + '</select></label></div><p class="helper">El combinado usa barras y línea con dos métricas; las áreas apiladas y barras comparan una segunda dimensión. Los mapas necesitan longitud y latitud; la dispersión, el calor y la matriz necesitan campos numéricos. La base elegida se conserva en el proyecto.</p><div class="modal-actions"><button class="button button-ghost" data-modal-action="close-card-editor">Cancelar</button><button class="button button-primary" data-modal-action="save-card-editor">Guardar visual</button></div></div></div>';
   document.body.insertAdjacentHTML('beforeend', markup);
   const modal = document.querySelector('#card-editor-modal');
   const aggregationSelect = modal?.querySelector('#card-editor-aggregation');
@@ -978,6 +1056,7 @@ function showCardEditor(card) {
   modal.querySelector('[data-modal-action="save-card-editor"]').addEventListener('click', () => {
     card.title = modal.querySelector('#card-editor-name').value.trim() || 'Visualización';
     card.chartType = CHART_TYPES.includes(modal.querySelector('#card-editor-type').value) ? modal.querySelector('#card-editor-type').value : 'bar';
+    card.mapBase = MAP_BASES[modal.querySelector('#card-editor-map-base').value] ? modal.querySelector('#card-editor-map-base').value : 'osm';
     card.xField = hasColumn(modal.querySelector('#card-editor-x').value) ? modal.querySelector('#card-editor-x').value : state.xField;
     card.yField = hasColumn(modal.querySelector('#card-editor-y').value) ? modal.querySelector('#card-editor-y').value : state.yField;
     card.secondaryField = hasColumn(modal.querySelector('#card-editor-secondary').value, 'number') && modal.querySelector('#card-editor-secondary').value !== card.yField ? modal.querySelector('#card-editor-secondary').value : '';
@@ -1032,7 +1111,7 @@ function bind() {
     if (action === 'resize-card') { resizeCard(actionNode.dataset.id, actionNode.dataset.axis, actionNode.dataset.delta); return; }
     if (action === 'configure-card') { showCardEditor(state.dashboard.cards.find(card => card.id === actionNode.dataset.id)); return; }
     if (action === 'add-chart') {
-      state.dashboard.cards.push({ id: 'chart-' + Date.now(), type: 'chart', title: state.chartTitle?.trim() || state.yField + ' por ' + state.xField, chartType: state.chartType, xField: state.xField, yField: state.yField, secondaryField: state.secondaryField, seriesField: state.seriesField, aggregation: state.aggregation, chartSort: state.chartSort });
+      state.dashboard.cards.push({ id: 'chart-' + Date.now(), type: 'chart', title: state.chartTitle?.trim() || state.yField + ' por ' + state.xField, chartType: state.chartType, xField: state.xField, yField: state.yField, secondaryField: state.secondaryField, seriesField: state.seriesField, aggregation: state.aggregation, mapBase: state.mapBase || 'osm', chartSort: state.chartSort });
       announce('Visual añadido al dashboard.');
       renderAll();
       return;
@@ -1067,6 +1146,7 @@ function bind() {
     if (event.target.id === 'secondary-field') { state.secondaryField = hasColumn(event.target.value, 'number') && event.target.value !== state.yField ? event.target.value : ''; renderAll(); }
     if (event.target.id === 'series-field') { state.seriesField = hasColumn(event.target.value) && event.target.value !== state.xField ? event.target.value : ''; renderAll(); }
     if (event.target.id === 'chart-type') { state.chartType = CHART_TYPES.includes(event.target.value) ? event.target.value : 'bar'; if (['map', 'bubble-map', 'density-map'].includes(state.chartType)) { const geo = coordinates(); state.xField = geo.longitude || state.xField; state.yField = geo.latitude || state.yField; state.secondaryField = ''; state.seriesField = ''; state.aggregation = 'count'; } if (['heatmap', 'scatter', 'correlation'].includes(state.chartType)) { const numbers = analysisNumericColumns(); state.xField = numbers[0]?.name || state.xField; state.yField = numbers[1]?.name || numbers[0]?.name || state.yField; state.secondaryField = ''; state.seriesField = ''; state.aggregation = ['heatmap', 'correlation'].includes(state.chartType) ? 'count' : state.aggregation; } if (['grouped-bar', 'stacked-bar', 'stacked-area'].includes(state.chartType)) state.seriesField = bestSeriesField(state.xField); if (state.chartType === 'sankey') { const flow = bestFlowFields(); state.xField = flow.source || state.xField; state.seriesField = flow.target || bestSeriesField(state.xField); } if (state.chartType === 'combo') { const numbers = analysisNumericColumns(); state.xField = state.xField || state.columns.find(column => column.type === 'text')?.name || ''; state.yField = numbers[0]?.name || state.yField; state.secondaryField = numbers.find(column => column.name !== state.yField)?.name || ''; state.seriesField = ''; } renderAll(); }
+    if (event.target.id === 'map-base') { state.mapBase = MAP_BASES[event.target.value] ? event.target.value : 'osm'; renderAll(); }
     if (event.target.id === 'aggregation') { state.aggregation = event.target.value; renderAll(); }
     if (event.target.id === 'chart-sort') { state.chartSort = ['original', 'value-desc', 'value-asc'].includes(event.target.value) ? event.target.value : 'original'; renderAll(); }
     if (event.target.id === 'chart-title') { state.chartTitle = event.target.value.trim() || 'Visualización principal'; renderAll(); }

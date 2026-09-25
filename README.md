@@ -5,6 +5,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 ## Incluye
 
 - **Dashboard Studio**: KPIs, tablas y 23 familias de visualización: barras simples, agrupadas y apiladas, líneas, áreas simples y apiladas, combinado de barras y línea, proyección lineal descriptiva, anillos, dispersión, histogramas, cajas, mapas de puntos, mapas de burbujas, densidad por cuadrícula WGS84, calor bivariado, matriz de correlación, embudo, cascada, radar, treemap, Sankey de flujos y Pareto.
+- **Mapas Leaflet configurables**: los mapas de puntos, burbujas y densidad muestran las filas filtradas sobre OpenStreetMap o bases Esri de calles, oscuro y satélite; incluyen control de capas, zoom, ajuste a la extensión, atribución, tooltips y ficha emergente con todos los atributos del registro.
 - **Data Profiler**: vacíos, duplicados exactos, tipos, cardinalidad, media, mediana, rangos y cobertura por campo.
 - **Transform Lab**: filtros combinados, búsqueda, campos calculados aritméticos y exportación.
 - **Pivot Lab**: agrupaciones y agregaciones locales por categoría, comparación visual y exportación del resumen.
@@ -13,6 +14,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Ordenación de tablas, paginación progresiva, chips de filtros, reinicio de vistas y duplicación/renombrado de tarjetas.
 - Filtros de rango numérico y búsqueda por contenido en todos los campos, con actualización mientras se escribe.
 - Visuales con título, orden por valor y configuración persistida; exportación CSV o JSON de la población visible con filtros y procedencia.
+- Creador de visualizaciones por caja: elige campos X/Y, segunda métrica, serie, operación, orden, tipo de gráfico y base cartográfica; cada configuración se puede editar, duplicar, recolocar, redimensionar y guardar en el proyecto.
 - Agregaciones configurables por visual: suma, media, mediana, mínimo, máximo, recuento y valores distintos; se aplican localmente a las filas filtradas y se conservan al guardar el proyecto.
 - Dashboard responsive de 12 columnas: tarjetas arrastrables, movimiento arriba/abajo, ajuste de ancho y alto, edición por tarjeta, autoorganización adaptada a escritorio/tableta/móvil y modo Autodashboard según el esquema detectado.
 - Series por color para comparar una segunda dimensión en barras agrupadas o apiladas; Pareto ordenado con acumulado y leyendas compactas.
@@ -37,6 +39,8 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 ## Privacidad y trazabilidad
 
 Los archivos se leen en el navegador mediante JavaScript y no se envían a un servidor. La muestra incluida es **sintética** y sirve solo para probar la interfaz; no representa un inventario oficial ni una fuente estadística. Cuando se cargue un archivo propio, la aplicación muestra su nombre como procedencia y conserva las filas dentro del proyecto guardado.
+
+Los mapas Leaflet necesitan conexión para descargar las teselas seleccionadas. Cada base mantiene la atribución del proveedor; la capa de datos y sus atributos siguen procesándose localmente y no se transmiten.
 
 La integración con Gemini Nano es progresiva: si el navegador no expone `window.LanguageModel`, el estudio conserva el resumen y las recomendaciones deterministas sin descargar ningún modelo. En Chrome, la disponibilidad se consulta con `LanguageModel.availability()` y el modelo se solicita bajo demanda, siguiendo la [Prompt API oficial](https://developer.chrome.com/docs/ai/prompt-api).
 

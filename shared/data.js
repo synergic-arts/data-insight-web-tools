@@ -32,6 +32,7 @@ export const state = {
   secondaryField: '',
   chartType: 'bar',
   seriesField: '',
+  mapBase: 'osm',
   chartSort: 'original',
   chartTitle: 'Visualización principal',
   aggregation: 'sum',
@@ -261,6 +262,7 @@ export function loadRows(rows, meta = {}) {
   state.sortDir = 'asc';
   state.tableLimit = 20;
   state.chartType = 'bar';
+  state.mapBase = 'osm';
   state.secondaryField = '';
   state.seriesField = '';
   state.chartSort = 'original';
