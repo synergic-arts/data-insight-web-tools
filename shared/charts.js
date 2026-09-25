@@ -390,8 +390,8 @@ function densityMapChart(rows, longitudeField, latitudeField) {
   return chartFrame(`<g class="map-grid">${marks}</g><text class="chart-axis-title" x="62" y="20">Densidad por cuadrícula · ${points.length} coordenadas WGS84</text><text class="chart-axis-label" x="74" y="296">${format(minLon, 4)}°</text><text class="chart-axis-label" x="774" y="296" text-anchor="end">${format(maxLon, 4)}°</text><text class="chart-axis-label" x="58" y="40" text-anchor="end">${format(maxLat, 4)}°</text><text class="chart-axis-label" x="58" y="274" text-anchor="end">${format(minLat, 4)}°</text>`, 'Mapa de densidad por cuadrícula');
 }
 
-function leafletChartHost(type, longitudeField, latitudeField, secondaryField = '', seriesField = '', mapBase = 'osm') {
-  const config = JSON.stringify({ type, longitudeField, latitudeField, secondaryField, seriesField, mapBase });
+function leafletChartHost(type, longitudeField, latitudeField, secondaryField = '', seriesField = '', aggregation = 'count', mapBase = 'osm') {
+  const config = JSON.stringify({ type, longitudeField, latitudeField, secondaryField, seriesField, aggregation, mapBase });
   const labels = { map: 'Mapa Leaflet de puntos', 'bubble-map': 'Mapa Leaflet de burbujas', 'density-map': 'Mapa Leaflet de densidad' };
   return `<div class="leaflet-chart-host" data-leaflet-chart="${esc(config)}" role="img" aria-label="${esc(labels[type] || 'Mapa Leaflet')}"><div class="leaflet-loading"><span>⌖</span><strong>Cargando mapa Leaflet…</strong><small>Se aplicarán las capas y filtros actuales.</small></div></div>`;
 }
@@ -604,9 +604,9 @@ export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'or
   if (type === 'scatter') return scatterChart(rows, xField, yField);
   if (type === 'histogram') return histogramChart(rows, yField);
   if (type === 'boxplot') return boxPlotChart(rows, xField, yField, ordering);
-  if (type === 'map') return leafletChartHost(type, xField, yField, secondaryField, seriesField, mapBase);
-  if (type === 'bubble-map') return leafletChartHost(type, xField, yField, secondaryField, seriesField, mapBase);
-  if (type === 'density-map') return leafletChartHost(type, xField, yField, secondaryField, seriesField, mapBase);
+  if (type === 'map') return leafletChartHost(type, xField, yField, secondaryField, seriesField, aggregation, mapBase);
+  if (type === 'bubble-map') return leafletChartHost(type, xField, yField, secondaryField, seriesField, aggregation, mapBase);
+  if (type === 'density-map') return leafletChartHost(type, xField, yField, secondaryField, seriesField, aggregation, mapBase);
   if (type === 'heatmap') return heatmapChart(rows, xField, yField);
   if (type === 'correlation') return correlationChart(rows);
   if (type === 'funnel') return funnelChart(rows, xField, yField, aggregation, ordering);

@@ -1,5 +1,5 @@
-import { DEMO_ROWS, state, esc, format, toNumber, toCoordinate, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js?v=20260925-27';
-import { chartSVG, tableHTML } from './charts.js?v=20260925-27';
+import { DEMO_ROWS, state, esc, format, toNumber, toCoordinate, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js?v=20260925-28';
+import { chartSVG, tableHTML } from './charts.js?v=20260925-28';
 
 const root = document.body;
 const transformationHistory = [];
@@ -224,6 +224,18 @@ function mapPopup(row, index, longitude, latitude) {
   return `<div class="leaflet-popup-title">${esc(name)}</div><div class="leaflet-popup-coords">${format(longitude, 5)}°, ${format(latitude, 5)}°</div><table class="leaflet-popup-table">${attributes}</table>`;
 }
 
+function aggregateMapValue(rows, field, aggregation) {
+  if (!field) return rows.length;
+  if (aggregation === 'distinct') return new Set(rows.map(point => String(point.row[field] ?? ''))).size;
+  const values = rows.map(point => toNumber(point.row[field])).filter(value => value !== null);
+  if (!values.length) return rows.length;
+  if (aggregation === 'avg') return values.reduce((sum, value) => sum + value, 0) / values.length;
+  if (aggregation === 'median') { const sorted = [...values].sort((left, right) => left - right); const middle = Math.floor(sorted.length / 2); return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2; }
+  if (aggregation === 'min') return Math.min(...values);
+  if (aggregation === 'max') return Math.max(...values);
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
 function mountLeafletMaps() {
   if (!window.L) return;
   document.querySelectorAll('[data-leaflet-chart]').forEach(host => {
@@ -248,15 +260,19 @@ function mountLeafletMaps() {
       current.rows.push(point);
       groups.set(key, current);
     });
+    const renderPoints = [...groups.values()].map(point => ({ ...point, metric: aggregateMapValue(point.rows, config.secondaryField, config.aggregation || 'count') }));
     if (config.type === 'density-map') points.forEach(point => {
       const marker = L.circleMarker([point.latitude, point.longitude], { radius: 4, color: '#fef3c7', weight: 1, fillColor: '#67e8f9', fillOpacity: .45 });
       marker.bindPopup(mapPopup(point.row, point.index, point.longitude, point.latitude));
       dataLayer.addLayer(marker);
     });
-    const renderPoints = [...groups.values()];
+    const metricValues = renderPoints.map(point => point.metric).filter(value => Number.isFinite(value));
+    const metricMin = metricValues.length ? Math.min(...metricValues) : 0;
+    const metricMax = metricValues.length ? Math.max(...metricValues) : 1;
     renderPoints.forEach((point, index) => {
       const label = point.row.name ?? point.row.site ?? point.row.title ?? `Fila ${point.index + 1}`;
-      const radius = config.type === 'map' ? 6 : Math.min(26, 7 + Math.sqrt(point.count) * (config.type === 'density-map' ? 4 : 5));
+      const normalizedMetric = (point.metric - metricMin) / (metricMax - metricMin || 1);
+      const radius = config.type === 'map' ? 6 : config.type === 'bubble-map' ? Math.min(28, 7 + normalizedMetric * 20) : Math.min(26, 7 + Math.sqrt(point.count) * 4);
       const marker = L.circleMarker([point.latitude, point.longitude], { radius, color: '#071924', weight: 1.5, fillColor: config.type === 'density-map' ? '#fbbf24' : '#67e8f9', fillOpacity: config.type === 'density-map' ? Math.min(.86, .3 + point.count / Math.max(1, renderPoints.length)) : .84 });
       const sourceRow = point.row;
       marker.bindPopup(mapPopup(sourceRow, point.index, point.longitude, point.latitude));
@@ -271,7 +287,8 @@ function mountLeafletMaps() {
     if (bounds.isValid()) map.fitBounds(bounds.pad(.12), { maxZoom: 14 });
     const caption = document.createElement('div');
     caption.className = 'leaflet-caption';
-    caption.textContent = `${points.length} coordenadas · ${MAP_BASES[config.mapBase]?.label || MAP_BASES.osm.label}`;
+    const metricCaption = config.secondaryField ? ` · ${AGGREGATION_LABELS[config.aggregation] || 'Suma'} ${config.secondaryField}` : '';
+    caption.textContent = `${points.length} coordenadas${metricCaption} · ${MAP_BASES[config.mapBase]?.label || MAP_BASES.osm.label}`;
     host.appendChild(caption);
     leafletMaps.add(map);
   });
@@ -330,7 +347,8 @@ function renderAnalyze() {
   const helper = hasMetric ? `Los gráficos se calculan en memoria con las filas filtradas. ${geo.longitude && geo.latitude ? `Se detectan coordenadas ${geo.longitude}/${geo.latitude}; prueba un mapa de puntos, burbujas o densidad.` : 'Puedes cargar un GeoJSON o campos lon/lat para activar el mapa.'} ${flow.source && flow.target ? `Se detecta un flujo ${flow.source} → ${flow.target}; prueba el Sankey.` : ''} ${analysisNumericColumns().length > 1 ? 'El mapa de calor, el combinado y la matriz de correlación comparan métricas compatibles.' : ''}` : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
   const previewTitle = state.chartTitle || `${state.yField} por ${state.xField}`;
   const chartOptions = Object.entries(CHART_LABELS).map(([value, label]) => `<option value="${value}" ${state.chartType === value ? 'selected' : ''}>${label}</option>`).join('');
-  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Métrica secundaria<span>${fieldSelect('secondary-field', state.secondaryField, true, true, 'Sin segunda métrica')}</span></label><label>Serie / color<span>${fieldSelect('series-field', state.seriesField, false, true)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Mapa base<span><select id="map-base" ${MAP_CHART_TYPES.includes(state.chartType) ? '' : 'disabled'}>${mapBaseOptions(state.mapBase || 'osm')}</select></span></label><label>Agregación<select id="aggregation">${aggregationOptions(aggregation, hasMetric)}</select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper} Las agregaciones numéricas incluyen suma, media, mediana, mínimo y máximo; también puedes contar filas o valores distintos. En mapas Leaflet puedes cambiar la base, activar capas y abrir los atributos de cada registro.</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><div class="panel-heading-actions"><span class="panel-note">${format(state.filtered.length, 0)} filas</span><button class="button button-ghost" data-action="export-svg">Exportar SVG</button></div></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort, state.seriesField, state.secondaryField, state.mapBase || 'osm')}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
+  const secondaryLabel = MAP_CHART_TYPES.includes(state.chartType) ? 'Métrica secundaria / tamaño' : 'Métrica secundaria';
+  return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>${secondaryLabel}<span>${fieldSelect('secondary-field', state.secondaryField, true, true, 'Sin segunda métrica')}</span></label><label>Serie / color<span>${fieldSelect('series-field', state.seriesField, false, true)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Mapa base<span><select id="map-base" ${MAP_CHART_TYPES.includes(state.chartType) ? '' : 'disabled'}>${mapBaseOptions(state.mapBase || 'osm')}</select></span></label><label>Agregación<select id="aggregation">${aggregationOptions(aggregation, hasMetric)}</select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper} Las agregaciones numéricas incluyen suma, media, mediana, mínimo y máximo; también puedes contar filas o valores distintos. En mapas Leaflet, la métrica secundaria controla el tamaño agregado de burbujas y densidad.</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><div class="panel-heading-actions"><span class="panel-note">${format(state.filtered.length, 0)} filas</span><button class="button button-ghost" data-action="export-svg">Exportar SVG</button></div></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort, state.seriesField, state.secondaryField, state.mapBase || 'osm')}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
 }
 
 function enhanceAnalyzeUI() {
@@ -1067,8 +1085,7 @@ function showCardEditor(card) {
       const geo = coordinates();
       card.xField = geo.longitude || card.xField;
       card.yField = geo.latitude || card.yField;
-      card.aggregation = 'count';
-      card.secondaryField = '';
+      if (card.chartType === 'map' || !card.secondaryField) card.aggregation = 'count';
       card.seriesField = '';
     }
     if (['scatter', 'heatmap', 'correlation'].includes(card.chartType)) {
@@ -1145,7 +1162,7 @@ function bind() {
     if (event.target.id === 'y-field') { state.yField = event.target.value; if (state.secondaryField === state.yField) state.secondaryField = bestSecondaryField(state.yField); renderAll(); }
     if (event.target.id === 'secondary-field') { state.secondaryField = hasColumn(event.target.value, 'number') && event.target.value !== state.yField ? event.target.value : ''; renderAll(); }
     if (event.target.id === 'series-field') { state.seriesField = hasColumn(event.target.value) && event.target.value !== state.xField ? event.target.value : ''; renderAll(); }
-    if (event.target.id === 'chart-type') { state.chartType = CHART_TYPES.includes(event.target.value) ? event.target.value : 'bar'; if (['map', 'bubble-map', 'density-map'].includes(state.chartType)) { const geo = coordinates(); state.xField = geo.longitude || state.xField; state.yField = geo.latitude || state.yField; state.secondaryField = ''; state.seriesField = ''; state.aggregation = 'count'; } if (['heatmap', 'scatter', 'correlation'].includes(state.chartType)) { const numbers = analysisNumericColumns(); state.xField = numbers[0]?.name || state.xField; state.yField = numbers[1]?.name || numbers[0]?.name || state.yField; state.secondaryField = ''; state.seriesField = ''; state.aggregation = ['heatmap', 'correlation'].includes(state.chartType) ? 'count' : state.aggregation; } if (['grouped-bar', 'stacked-bar', 'stacked-area'].includes(state.chartType)) state.seriesField = bestSeriesField(state.xField); if (state.chartType === 'sankey') { const flow = bestFlowFields(); state.xField = flow.source || state.xField; state.seriesField = flow.target || bestSeriesField(state.xField); } if (state.chartType === 'combo') { const numbers = analysisNumericColumns(); state.xField = state.xField || state.columns.find(column => column.type === 'text')?.name || ''; state.yField = numbers[0]?.name || state.yField; state.secondaryField = numbers.find(column => column.name !== state.yField)?.name || ''; state.seriesField = ''; } renderAll(); }
+    if (event.target.id === 'chart-type') { state.chartType = CHART_TYPES.includes(event.target.value) ? event.target.value : 'bar'; if (MAP_CHART_TYPES.includes(state.chartType)) { const geo = coordinates(); state.xField = geo.longitude || state.xField; state.yField = geo.latitude || state.yField; state.secondaryField = state.chartType === 'map' ? '' : bestSecondaryField(state.yField); state.seriesField = ''; state.aggregation = state.secondaryField ? 'sum' : 'count'; } if (['heatmap', 'scatter', 'correlation'].includes(state.chartType)) { const numbers = analysisNumericColumns(); state.xField = numbers[0]?.name || state.xField; state.yField = numbers[1]?.name || numbers[0]?.name || state.yField; state.secondaryField = ''; state.seriesField = ''; state.aggregation = ['heatmap', 'correlation'].includes(state.chartType) ? 'count' : state.aggregation; } if (['grouped-bar', 'stacked-bar', 'stacked-area'].includes(state.chartType)) state.seriesField = bestSeriesField(state.xField); if (state.chartType === 'sankey') { const flow = bestFlowFields(); state.xField = flow.source || state.xField; state.seriesField = flow.target || bestSeriesField(state.xField); } if (state.chartType === 'combo') { const numbers = analysisNumericColumns(); state.xField = state.xField || state.columns.find(column => column.type === 'text')?.name || ''; state.yField = numbers[0]?.name || state.yField; state.secondaryField = numbers.find(column => column.name !== state.yField)?.name || ''; state.seriesField = ''; } renderAll(); }
     if (event.target.id === 'map-base') { state.mapBase = MAP_BASES[event.target.value] ? event.target.value : 'osm'; renderAll(); }
     if (event.target.id === 'aggregation') { state.aggregation = event.target.value; renderAll(); }
     if (event.target.id === 'chart-sort') { state.chartSort = ['original', 'value-desc', 'value-asc'].includes(event.target.value) ? event.target.value : 'original'; renderAll(); }

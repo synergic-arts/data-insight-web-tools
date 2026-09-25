@@ -14,7 +14,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Ordenación de tablas, paginación progresiva, chips de filtros, reinicio de vistas y duplicación/renombrado de tarjetas.
 - Filtros de rango numérico y búsqueda por contenido en todos los campos, con actualización mientras se escribe.
 - Visuales con título, orden por valor y configuración persistida; exportación CSV o JSON de la población visible con filtros y procedencia.
-- Creador de visualizaciones por caja: elige campos X/Y, segunda métrica, serie, operación, orden, tipo de gráfico y base cartográfica; cada configuración se puede editar, duplicar, recolocar, redimensionar y guardar en el proyecto.
+- Creador de visualizaciones por caja: elige campos X/Y, métrica secundaria para el tamaño agregado de burbujas/densidad, serie, operación, orden, tipo de gráfico y base cartográfica; cada configuración se puede editar, duplicar, recolocar, redimensionar y guardar en el proyecto.
 - Agregaciones configurables por visual: suma, media, mediana, mínimo, máximo, recuento y valores distintos; se aplican localmente a las filas filtradas y se conservan al guardar el proyecto.
 - Dashboard responsive de 12 columnas: tarjetas arrastrables, movimiento arriba/abajo, ajuste de ancho y alto, edición por tarjeta, autoorganización adaptada a escritorio/tableta/móvil y modo Autodashboard según el esquema detectado.
 - Series por color para comparar una segunda dimensión en barras agrupadas o apiladas; Pareto ordenado con acumulado y leyendas compactas.
