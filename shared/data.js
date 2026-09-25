@@ -36,6 +36,7 @@ export const state = {
   chartSort: 'original',
   chartTitle: 'Visualización principal',
   aggregation: 'sum',
+  geojsonFeatures: [],
   sortKey: '',
   sortDir: 'asc',
   tableLimit: 20,
@@ -219,24 +220,37 @@ export function parseAny(text, fileName = '') {
           }
           return pair;
         };
-        return parsed.features.filter(feature => feature && typeof feature === 'object').map((feature, index) => {
+        const geojsonFeatures = parsed.features.filter(feature => feature && typeof feature === 'object').map((feature, index) => {
+          const mapGeometry = geometry => {
+            if (!geometry || !Array.isArray(geometry.coordinates)) return geometry || null;
+            const projectCoordinates = value => {
+              if (Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'number') return projectPair(value);
+              return Array.isArray(value) ? value.map(projectCoordinates) : value;
+            };
+            return { ...geometry, coordinates: projectCoordinates(geometry.coordinates) };
+          };
+          return { type: 'Feature', id: feature.id ?? index + 1, properties: { ...(feature.properties || {}), feature_id: feature.id ?? index + 1 }, geometry: mapGeometry(feature.geometry) };
+        });
+        const rows = geojsonFeatures.map((feature, index) => {
           const properties = { ...(feature.properties || {}), feature_id: feature.id ?? index + 1 };
           const coordinates = feature.geometry?.coordinates;
           if (Array.isArray(coordinates)) {
             const pairs = [];
-            const collect = value => { if (Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'number') pairs.push(projectPair(value)); else if (Array.isArray(value)) value.forEach(collect); };
+            const collect = value => { if (Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'number') pairs.push(value); else if (Array.isArray(value)) value.forEach(collect); };
             collect(coordinates);
             if (pairs.length) {
               const longitudes = pairs.map(pair => pair[0]);
               const latitudes = pairs.map(pair => pair[1]);
-              if (isWebMercator || properties.longitude === undefined) properties.longitude = (Math.min(...longitudes) + Math.max(...longitudes)) / 2;
-              if (isWebMercator || properties.latitude === undefined) properties.latitude = (Math.min(...latitudes) + Math.max(...latitudes)) / 2;
+              if (isWebMercator || isUtm || properties.longitude === undefined) properties.longitude = (Math.min(...longitudes) + Math.max(...longitudes)) / 2;
+              if (isWebMercator || isUtm || properties.latitude === undefined) properties.latitude = (Math.min(...latitudes) + Math.max(...latitudes)) / 2;
             }
           }
           properties.geometry_type = feature.geometry?.type || '';
           if (declaredCRS) properties.coordinate_crs = isWebMercator || isUtm ? `EPSG:4326 · convertido desde ${declaredCRS}` : declaredCRS;
           return properties;
         });
+        Object.defineProperty(rows, '__geojsonFeatures', { value: geojsonFeatures, enumerable: false, configurable: true });
+        return rows;
       }
       if (Array.isArray(parsed.rows)) return parsed.rows;
       if (Array.isArray(parsed.data)) return parsed.data;
@@ -249,6 +263,7 @@ export function parseAny(text, fileName = '') {
 
 export function loadRows(rows, meta = {}) {
   const sourceRows = Array.isArray(rows) ? rows : [];
+  state.geojsonFeatures = Array.isArray(meta.geojsonFeatures) ? meta.geojsonFeatures : Array.isArray(rows?.__geojsonFeatures) ? rows.__geojsonFeatures : [];
   state.rows = sourceRows.map((row, index) => {
     if (row && typeof row === 'object' && !Array.isArray(row)) return { ...row };
     return { value: row ?? '', row_number: index + 1 };

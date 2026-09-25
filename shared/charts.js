@@ -392,7 +392,7 @@ function densityMapChart(rows, longitudeField, latitudeField) {
 
 function leafletChartHost(type, longitudeField, latitudeField, secondaryField = '', seriesField = '', aggregation = 'count', mapBase = 'osm') {
   const config = JSON.stringify({ type, longitudeField, latitudeField, secondaryField, seriesField, aggregation, mapBase });
-  const labels = { map: 'Mapa Leaflet de puntos', 'bubble-map': 'Mapa Leaflet de burbujas', 'density-map': 'Mapa Leaflet de densidad' };
+  const labels = { map: 'Mapa Leaflet de puntos', 'bubble-map': 'Mapa Leaflet de burbujas', 'density-map': 'Mapa Leaflet de densidad', 'choropleth-map': 'Mapa coroplético Leaflet con geometrías GeoJSON' };
   return `<div class="leaflet-chart-host" data-leaflet-chart="${esc(config)}" role="img" aria-label="${esc(labels[type] || 'Mapa Leaflet')}"><div class="leaflet-loading"><span>⌖</span><strong>Cargando mapa Leaflet…</strong><small>Se aplicarán las capas y filtros actuales.</small></div></div>`;
 }
 
@@ -607,6 +607,7 @@ export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'or
   if (type === 'map') return leafletChartHost(type, xField, yField, secondaryField, seriesField, aggregation, mapBase);
   if (type === 'bubble-map') return leafletChartHost(type, xField, yField, secondaryField, seriesField, aggregation, mapBase);
   if (type === 'density-map') return leafletChartHost(type, xField, yField, secondaryField, seriesField, aggregation, mapBase);
+  if (type === 'choropleth-map') return leafletChartHost(type, xField, yField, secondaryField, seriesField, aggregation, mapBase);
   if (type === 'heatmap') return heatmapChart(rows, xField, yField);
   if (type === 'correlation') return correlationChart(rows);
   if (type === 'funnel') return funnelChart(rows, xField, yField, aggregation, ordering);

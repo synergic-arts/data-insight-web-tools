@@ -1,20 +1,20 @@
-import { DEMO_ROWS, state, esc, format, toNumber, toCoordinate, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js?v=20260925-28';
-import { chartSVG, tableHTML } from './charts.js?v=20260925-28';
+import { DEMO_ROWS, state, esc, format, toNumber, toCoordinate, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js?v=20260925-29';
+import { chartSVG, tableHTML } from './charts.js?v=20260925-29';
 
 const root = document.body;
 const transformationHistory = [];
 const mode = root.dataset.mode || 'dashboard';
 const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'analyze' : 'overview';
 const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
-const CHART_TYPES = ['bar', 'grouped-bar', 'stacked-bar', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'funnel', 'waterfall', 'radar', 'treemap', 'sankey', 'pareto'];
-const CHART_LABELS = { bar: 'Barras', 'grouped-bar': 'Barras agrupadas', 'stacked-bar': 'Barras apiladas', line: 'Línea', area: 'Área', 'stacked-area': 'Área apilada', combo: 'Combinado', forecast: 'Proyección', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', heatmap: 'Mapa de calor bivariado', correlation: 'Matriz de correlación', funnel: 'Embudo', waterfall: 'Cascada', radar: 'Radar', treemap: 'Treemap', sankey: 'Sankey de flujos', pareto: 'Pareto' };
+const CHART_TYPES = ['bar', 'grouped-bar', 'stacked-bar', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'choropleth-map', 'heatmap', 'correlation', 'funnel', 'waterfall', 'radar', 'treemap', 'sankey', 'pareto'];
+const CHART_LABELS = { bar: 'Barras', 'grouped-bar': 'Barras agrupadas', 'stacked-bar': 'Barras apiladas', line: 'Línea', area: 'Área', 'stacked-area': 'Área apilada', combo: 'Combinado', forecast: 'Proyección', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', 'choropleth-map': 'Mapa coroplético GeoJSON', heatmap: 'Mapa de calor bivariado', correlation: 'Matriz de correlación', funnel: 'Embudo', waterfall: 'Cascada', radar: 'Radar', treemap: 'Treemap', sankey: 'Sankey de flujos', pareto: 'Pareto' };
 const MAP_BASES = {
   osm: { label: 'OpenStreetMap', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 },
   light: { label: 'Esri calles', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', maxZoom: 19 },
   dark: { label: 'Esri oscuro', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', maxZoom: 16 },
   satellite: { label: 'Esri World Imagery', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', maxZoom: 19 }
 };
-const MAP_CHART_TYPES = ['map', 'bubble-map', 'density-map'];
+const MAP_CHART_TYPES = ['map', 'bubble-map', 'density-map', 'choropleth-map'];
 const leafletMaps = new Set();
 const AGGREGATIONS = ['sum', 'avg', 'median', 'min', 'max', 'count', 'distinct'];
 const AGGREGATION_LABELS = { sum: 'Suma', avg: 'Media', median: 'Mediana', min: 'Mínimo', max: 'Máximo', count: 'Recuento', distinct: 'Valores distintos' };
@@ -58,7 +58,7 @@ function safeSpan(value, fallback, maximum = 12) {
 function layoutDefaults(card) {
   if (card.type === 'kpi') return { colSpan: 3, rowSpan: 1 };
   if (card.type === 'table') return { colSpan: 12, rowSpan: 2 };
-  if (['map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'scatter', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'grouped-bar', 'stacked-bar', 'sankey', 'pareto'].includes(card.chartType)) return { colSpan: 6, rowSpan: 2 };
+  if ([...MAP_CHART_TYPES, 'heatmap', 'correlation', 'scatter', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'grouped-bar', 'stacked-bar', 'sankey', 'pareto'].includes(card.chartType)) return { colSpan: 6, rowSpan: 2 };
   return { colSpan: 4, rowSpan: 2 };
 }
 
@@ -81,7 +81,7 @@ function autoLayoutCards(cards, viewportWidth = window.innerWidth) {
 function cardSortRank(card) {
   if (card.type === 'kpi') return 0;
   if (card.type === 'table') return 3;
-  if (['map', 'bubble-map', 'density-map', 'heatmap'].includes(card.chartType)) return 2;
+  if ([...MAP_CHART_TYPES, 'heatmap'].includes(card.chartType)) return 2;
   return 1;
 }
 
@@ -142,6 +142,7 @@ function defaultDashboard() {
   if (flow.source && flow.target && numeric) cards.push({ id: 'chart-flow', type: 'chart', title: 'Flujos entre categorías', chartType: 'sankey', xField: flow.source, yField: numeric, seriesField: flow.target, aggregation: 'sum' });
   if (geo.longitude && geo.latitude) cards.push({ id: 'map-main', type: 'chart', title: 'Distribución espacial', chartType: 'map', xField: geo.longitude, yField: geo.latitude, aggregation: 'count' });
   if (geo.longitude && geo.latitude) cards.push({ id: 'density-main', type: 'chart', title: 'Concentración espacial', chartType: 'density-map', xField: geo.longitude, yField: geo.latitude, aggregation: 'count' });
+  if (state.geojsonFeatures.length) cards.push({ id: 'choropleth-main', type: 'chart', title: 'Distribución por geometría', chartType: 'choropleth-map', xField: geo.longitude || dimension, yField: geo.latitude || dimension, secondaryField: numeric, aggregation: numeric ? 'sum' : 'count' });
   cards.push({ id: 'table-main', type: 'table', title: 'Registros filtrados' });
   return { cards: autoLayoutCards(cards) };
 }
@@ -236,13 +237,32 @@ function aggregateMapValue(rows, field, aggregation) {
   return values.reduce((sum, value) => sum + value, 0);
 }
 
+function mapColor(value, min, max) {
+  const palette = ['#dff7f0', '#a8e8d5', '#6ed7b6', '#36b893', '#168b73', '#0b5d55'];
+  const ratio = Number.isFinite(value) ? (value - min) / (max - min || 1) : 0;
+  return palette[Math.max(0, Math.min(palette.length - 1, Math.round(ratio * (palette.length - 1))))];
+}
+
+function addMapLegend(map, label, min, max) {
+  const legend = L.control({ position: 'bottomright' });
+  legend.onAdd = () => {
+    const element = L.DomUtil.create('div', 'leaflet-map-legend');
+    const swatches = ['#dff7f0', '#a8e8d5', '#6ed7b6', '#36b893', '#168b73', '#0b5d55'].map(color => `<i style="background:${color}"></i>`).join('');
+    element.innerHTML = `<strong>${esc(label)}</strong><div class="leaflet-map-legend-swatches">${swatches}</div><div class="leaflet-map-legend-values"><span>${format(min, 1)}</span><span>${format(max, 1)}</span></div>`;
+    L.DomEvent.disableClickPropagation(element);
+    return element;
+  };
+  legend.addTo(map);
+}
+
 function mountLeafletMaps() {
   if (!window.L) return;
   document.querySelectorAll('[data-leaflet-chart]').forEach(host => {
     let config;
     try { config = JSON.parse(host.dataset.leafletChart); } catch { host.innerHTML = '<div class="empty-chart"><strong>Configuración de mapa no válida</strong></div>'; return; }
     const points = state.filtered.map((row, index) => ({ row, index, longitude: toCoordinate(row[config.longitudeField]), latitude: toCoordinate(row[config.latitudeField]) })).filter(item => item.longitude !== null && item.latitude !== null && Math.abs(item.longitude) <= 180 && Math.abs(item.latitude) <= 90).slice(0, 2000);
-    if (!points.length) { host.innerHTML = '<div class="empty-chart"><span>⌖</span><strong>No hay coordenadas visibles</strong><small>Selecciona campos de longitud y latitud válidos o cambia los filtros.</small></div>'; return; }
+    const hasGeoJSON = config.type === 'choropleth-map' && state.geojsonFeatures.length;
+    if (!points.length && !hasGeoJSON) { host.innerHTML = '<div class="empty-chart"><span>⌖</span><strong>No hay coordenadas o geometrías visibles</strong><small>Selecciona campos de longitud y latitud válidos, carga un GeoJSON o cambia los filtros.</small></div>'; return; }
     host.classList.add('leaflet-chart-mounted');
     host.innerHTML = '';
     const map = L.map(host, { zoomControl: true, preferCanvas: true, attributionControl: true }).setView([40.2, -3.7], 5);
@@ -261,6 +281,56 @@ function mountLeafletMaps() {
       groups.set(key, current);
     });
     const renderPoints = [...groups.values()].map(point => ({ ...point, metric: aggregateMapValue(point.rows, config.secondaryField, config.aggregation || 'count') }));
+    const overlays = { 'Datos visibles': dataLayer };
+    let bounds = null;
+    if (hasGeoJSON) {
+      const rowByFeature = new Map(state.filtered.map(row => [String(row.feature_id), row]));
+      const visibleFeatures = state.filtered.length ? state.geojsonFeatures.filter((feature, index) => rowByFeature.has(String(feature.properties?.feature_id ?? feature.id ?? index + 1))) : [];
+      const featureValues = visibleFeatures.map((feature, index) => {
+        const row = rowByFeature.get(String(feature.properties?.feature_id ?? feature.id ?? index + 1)) || feature.properties || {};
+        return aggregateMapValue([{ row }], config.secondaryField, config.aggregation || 'count');
+      });
+      const featureMin = featureValues.length ? Math.min(...featureValues) : 0;
+      const featureMax = featureValues.length ? Math.max(...featureValues) : 1;
+      const featureLayer = L.geoJSON({ type: 'FeatureCollection', features: visibleFeatures }, {
+        style: feature => {
+          const id = String(feature.properties?.feature_id ?? feature.id ?? '');
+          const row = rowByFeature.get(id) || feature.properties || {};
+          const value = aggregateMapValue([{ row }], config.secondaryField, config.aggregation || 'count');
+          return { color: '#071924', weight: 1.2, fillColor: mapColor(value, featureMin, featureMax), fillOpacity: .72 };
+        },
+        onEachFeature: (feature, layer) => {
+          const id = String(feature.properties?.feature_id ?? feature.id ?? '');
+          const row = rowByFeature.get(id) || feature.properties || {};
+          const longitude = toCoordinate(row.longitude);
+          const latitude = toCoordinate(row.latitude);
+          layer.bindPopup(mapPopup(row, Number(feature.id || 0) - 1, longitude, latitude));
+          layer.bindTooltip(String(row.name ?? row.site ?? row.title ?? `Geometría ${id}`), { sticky: true });
+        }
+      });
+      overlays['Geometrías GeoJSON'] = featureLayer;
+      featureLayer.addTo(map);
+      bounds = featureLayer.getBounds();
+      addMapLegend(map, config.secondaryField ? `${AGGREGATION_LABELS[config.aggregation] || 'Recuento'} ${config.secondaryField}` : 'Registros por geometría', featureMin, featureMax);
+    } else if (state.geojsonFeatures.length && state.filtered.length) {
+      const visibleIds = new Set(state.filtered.map(row => String(row.feature_id)));
+      const referenceFeatures = state.geojsonFeatures.filter((feature, index) => visibleIds.has(String(feature.properties?.feature_id ?? feature.id ?? index + 1)));
+      if (referenceFeatures.length) {
+        const referenceLayer = L.geoJSON({ type: 'FeatureCollection', features: referenceFeatures }, { style: { color: '#fbbf24', weight: 1.1, fillColor: '#fbbf24', fillOpacity: .08 } });
+        overlays['Geometrías GeoJSON'] = referenceLayer;
+      }
+    }
+    if (config.type === 'choropleth-map') {
+      L.control.layers(bases, overlays, { collapsed: true, position: 'topright' }).addTo(map);
+      if (bounds?.isValid()) map.fitBounds(bounds.pad(.08), { maxZoom: 14 });
+      const caption = document.createElement('div');
+      caption.className = 'leaflet-caption';
+      const metricCaption = config.secondaryField ? ` · ${AGGREGATION_LABELS[config.aggregation] || 'Recuento'} ${config.secondaryField}` : '';
+      caption.textContent = `${state.filtered.length} geometrías visibles${metricCaption} · ${MAP_BASES[config.mapBase]?.label || MAP_BASES.osm.label}`;
+      host.appendChild(caption);
+      leafletMaps.add(map);
+      return;
+    }
     if (config.type === 'density-map') points.forEach(point => {
       const marker = L.circleMarker([point.latitude, point.longitude], { radius: 4, color: '#fef3c7', weight: 1, fillColor: '#67e8f9', fillOpacity: .45 });
       marker.bindPopup(mapPopup(point.row, point.index, point.longitude, point.latitude));
@@ -279,11 +349,10 @@ function mountLeafletMaps() {
       marker.bindTooltip(`${esc(label)} · ${point.count} registro${point.count === 1 ? '' : 's'}`, { direction: 'top', sticky: true });
       (config.type === 'density-map' ? densityLayer : dataLayer).addLayer(marker);
     });
-    const overlays = { 'Datos visibles': dataLayer };
     if (config.type === 'density-map') overlays['Densidad agregada'] = densityLayer;
     L.control.layers(bases, overlays, { collapsed: true, position: 'topright' }).addTo(map);
     if (config.type === 'density-map') densityLayer.addTo(map);
-    const bounds = L.latLngBounds(points.map(point => [point.latitude, point.longitude]));
+    bounds = L.latLngBounds(points.map(point => [point.latitude, point.longitude]));
     if (bounds.isValid()) map.fitBounds(bounds.pad(.12), { maxZoom: 14 });
     const caption = document.createElement('div');
     caption.className = 'leaflet-caption';
@@ -479,7 +548,7 @@ async function askLocalModel(request = '', mode = 'analysis') {
   }
   const profile = compactDataProfile();
   const prompt = mode === 'plan'
-    ? `Actúa como un planificador de operaciones de datos. Devuelve SOLO un objeto JSON válido, sin markdown ni explicación. Elige una sola acción: chart o treatment. Para chart usa exactamente este esquema: {"action":"chart","chartType":"bar|grouped-bar|stacked-bar|line|area|stacked-area|combo|forecast|donut|scatter|histogram|boxplot|map|bubble-map|density-map|heatmap|correlation|funnel|waterfall|radar|treemap|sankey|pareto","xField":"nombre exacto","yField":"nombre exacto","secondaryField":"segunda métrica numérica o cadena vacía","seriesField":"campo de serie o cadena vacía","aggregation":"sum|avg|count","chartSort":"original|value-desc|value-asc","title":"título breve"}. En sankey, xField es origen y seriesField es destino. Para treatment usa: {"action":"treatment","command":"orden breve en español"}. Solo puedes usar nombres de campos que aparezcan en el perfil. No inventes campos, coordenadas ni valores. La orden treatment debe ser una de estas operaciones: eliminar duplicados, eliminar filas vacías, rellenar faltantes, limpiar espacios, normalizar un campo numérico, detectar atípicos o segmentar un campo numérico. Petición: ${request || 'elige un análisis útil'}. Perfil: ${JSON.stringify(profile)}`
+    ? `Actúa como un planificador de operaciones de datos. Devuelve SOLO un objeto JSON válido, sin markdown ni explicación. Elige una sola acción: chart o treatment. Para chart usa exactamente este esquema: {"action":"chart","chartType":"bar|grouped-bar|stacked-bar|line|area|stacked-area|combo|forecast|donut|scatter|histogram|boxplot|map|bubble-map|density-map|choropleth-map|heatmap|correlation|funnel|waterfall|radar|treemap|sankey|pareto","xField":"nombre exacto","yField":"nombre exacto","secondaryField":"segunda métrica numérica o cadena vacía","seriesField":"campo de serie o cadena vacía","aggregation":"sum|avg|count","chartSort":"original|value-desc|value-asc","title":"título breve"}. En sankey, xField es origen y seriesField es destino. Para treatment usa: {"action":"treatment","command":"orden breve en español"}. Solo puedes usar nombres de campos que aparezcan en el perfil. No inventes campos, coordenadas ni valores. La orden treatment debe ser una de estas operaciones: eliminar duplicados, eliminar filas vacías, rellenar faltantes, limpiar espacios, normalizar un campo numérico, detectar atípicos o segmentar un campo numérico. Petición: ${request || 'elige un análisis útil'}. Perfil: ${JSON.stringify(profile)}`
     : `Actúa como analista de datos. Responde en español, con prudencia y sin inventar. Analiza este perfil local y propone hasta cinco acciones concretas de limpieza, métricas o visualizaciones. Si el usuario ha pedido una operación, explica cómo ejecutarla con los campos disponibles y no inventes columnas. Si hay coordenadas, recomienda un mapa apropiado. No afirmes causalidad. Petición del usuario: ${request || 'sin petición adicional'}. Perfil: ${JSON.stringify(profile)}`;
   const enhancedPrompt = prompt.replace('"aggregation":"sum|avg|count"', '"aggregation":"sum|avg|median|min|max|count|distinct"');
   const answer = await state.aiSession.prompt(enhancedPrompt);
@@ -506,6 +575,7 @@ function applyLocalPlan(plan) {
   if (!chartType || !xField || !yField) throw new Error('El plan usa un tipo o campos que no existen en este conjunto.');
   if (['scatter', 'heatmap'].includes(chartType) && (!state.columns.find(column => column.name === xField && column.type === 'number') || !state.columns.find(column => column.name === yField && column.type === 'number'))) throw new Error('Esta visualización necesita dos campos numéricos.');
   if (['map', 'bubble-map', 'density-map'].includes(chartType) && (!coordinates().longitude || !coordinates().latitude || xField !== coordinates().longitude || yField !== coordinates().latitude)) throw new Error('El mapa debe usar las coordenadas detectadas en el conjunto.');
+  if (chartType === 'choropleth-map' && !state.geojsonFeatures.length) throw new Error('El mapa coroplético necesita un GeoJSON con geometrías cargado localmente.');
   const seriesField = typeof plan.seriesField === 'string' && hasColumn(plan.seriesField) && plan.seriesField !== xField ? plan.seriesField : '';
   const secondaryField = typeof plan.secondaryField === 'string' && hasColumn(plan.secondaryField, 'number') && plan.secondaryField !== yField ? plan.secondaryField : '';
   if (['grouped-bar', 'stacked-bar', 'stacked-area'].includes(chartType) && !seriesField) throw new Error('Esta visualización necesita un campo de serie distinto de la dimensión.');
@@ -548,6 +618,7 @@ function buildAssistantPlan(command) {
   let xField = dimension;
   let yField = metric || state.yField;
   let aggregation = 'sum';
+  let secondaryField = '';
   if (/sankey|flujo|origen.*destino|source.*target|procedencia.*destino/.test(normalized) && numeric.length) { chartType = 'sankey'; xField = flow.source || dimension; yField = metric; }
   else if (/barras?\s+apilad|stacked/.test(normalized)) chartType = 'stacked-bar';
   else if (/area\s+apilad|área\s+apilad|stacked\s+area|composici[oó]n\s+temporal/.test(normalized)) chartType = 'stacked-area';
@@ -561,6 +632,7 @@ function buildAssistantPlan(command) {
   else if (/radar|araña/.test(normalized)) chartType = 'radar';
   else if (/treemap|árbol|rectángulo/.test(normalized)) chartType = 'treemap';
   else if (/calor|heatmap|bivariad/.test(normalized) && numeric.length >= 2) { chartType = 'heatmap'; xField = matches.find(column => column.type === 'number')?.name || numeric[0].name; yField = matches.filter(column => column.type === 'number')[1]?.name || numeric[1].name; aggregation = 'count'; }
+  else if (/coropl[eé]t|choropleth|pol[ií]gon|geojson|[aá]reas?\s+geogr[aá]fic/.test(normalized) && state.geojsonFeatures.length) { chartType = 'choropleth-map'; xField = geo.longitude || dimension; yField = geo.latitude || dimension; secondaryField = bestSecondaryField(yField); aggregation = secondaryField ? 'sum' : 'count'; }
   else if (/mapa|espacial|geogr[aá]fic|ubicaci[oó]n/.test(normalized) && geo.longitude && geo.latitude) { chartType = /densidad|concentraci[oó]n|cuadr[ií]cula/.test(normalized) ? 'density-map' : 'map'; xField = geo.longitude; yField = geo.latitude; aggregation = 'count'; }
   else if (/dispersi[oó]n|correlaci[oó]n|relaci[oó]n/.test(normalized) && numeric.length >= 2) { chartType = 'scatter'; xField = matches.find(column => column.type === 'number')?.name || numeric[0].name; yField = matches.filter(column => column.type === 'number')[1]?.name || numeric[1].name; }
   else if (/histograma|distribuci[oó]n/.test(normalized)) { chartType = 'histogram'; xField = dimension; yField = matches.find(column => column.type === 'number')?.name || metric; }
@@ -578,7 +650,7 @@ function buildAssistantPlan(command) {
   let seriesField = '';
   if (['grouped-bar', 'stacked-bar', 'stacked-area'].includes(chartType)) seriesField = bestSeriesField(xField);
   if (chartType === 'sankey') seriesField = flow.target || bestSeriesField(xField);
-  const secondaryField = chartType === 'combo' ? numeric.find(column => column.name !== yField)?.name || bestSecondaryField(yField) : '';
+  secondaryField = chartType === 'combo' ? numeric.find(column => column.name !== yField)?.name || bestSecondaryField(yField) : secondaryField;
   const title = text ? text.replace(/\s+/g, ' ').slice(0, 80) : 'Visualización asistida';
   return { chartType, xField, yField, secondaryField, seriesField, aggregation, chartSort: /ranking|mayor|orden/.test(normalized) ? 'value-desc' : 'original', title };
 }
@@ -591,7 +663,7 @@ function rememberTransformation(label) {
   transformationHistory.push({
     label,
     rows: cloneRows(state.rows),
-    meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail },
+    meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail, geojsonFeatures: JSON.parse(JSON.stringify(state.geojsonFeatures || [])) },
     filters: JSON.parse(JSON.stringify(state.filters)),
     search: state.search,
     activeTab: state.activeTab,
@@ -609,7 +681,7 @@ function rememberTransformation(label) {
 }
 
 function restoreTransformation(snapshot) {
-  loadRows(snapshot.rows, snapshot.meta);
+  loadRows(snapshot.rows, { ...(snapshot.meta || {}), geojsonFeatures: snapshot.meta?.geojsonFeatures || [] });
   state.filters = sanitizeFilters(snapshot.filters);
   state.search = typeof snapshot.search === 'string' ? snapshot.search : '';
   state.xField = safeField(snapshot.xField, state.xField);
@@ -635,7 +707,7 @@ function undoLastTransformation() {
 
 function reloadTransformedRows(rows, detail) {
   const dashboard = JSON.parse(JSON.stringify(state.dashboard));
-  loadRows(rows, { name: state.datasetName, kind: state.sourceKind, detail: `${state.sourceDetail} ${detail}`.trim() });
+  loadRows(rows, { name: state.datasetName, kind: state.sourceKind, detail: `${state.sourceDetail} ${detail}`.trim(), geojsonFeatures: state.geojsonFeatures });
   state.dashboard = sanitizeDashboard(dashboard);
   state.activeTab = 'overview';
   renderAll();
@@ -906,7 +978,7 @@ function exportSVG() {
 }
 
 function saveProject() {
-  const project = { format: 'data-insight-project', version: 6, savedAt: new Date().toISOString(), meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail }, rows: state.rows, filters: state.filters, search: state.search, activeTab: state.activeTab, xField: state.xField, yField: state.yField, secondaryField: state.secondaryField, seriesField: state.seriesField, chartType: state.chartType, mapBase: state.mapBase || 'osm', chartSort: state.chartSort, chartTitle: state.chartTitle, aggregation: state.aggregation, sortKey: state.sortKey, sortDir: state.sortDir, tableLimit: state.tableLimit, dashboard: state.dashboard };
+  const project = { format: 'data-insight-project', version: 7, savedAt: new Date().toISOString(), meta: { name: state.datasetName, kind: state.sourceKind, detail: state.sourceDetail }, rows: state.rows, geojsonFeatures: state.geojsonFeatures || [], filters: state.filters, search: state.search, activeTab: state.activeTab, xField: state.xField, yField: state.yField, secondaryField: state.secondaryField, seriesField: state.seriesField, chartType: state.chartType, mapBase: state.mapBase || 'osm', chartSort: state.chartSort, chartTitle: state.chartTitle, aggregation: state.aggregation, sortKey: state.sortKey, sortDir: state.sortDir, tableLimit: state.tableLimit, dashboard: state.dashboard };
   download(`${state.datasetName.replace(/[^\wáéíóúüñ-]+/gi, '-').slice(0, 48) || 'proyecto'}.data-insight.json`, JSON.stringify(project, null, 2), 'application/json;charset=utf-8');
   announce('Proyecto guardado. Puedes abrirlo de nuevo desde la barra lateral.');
 }
@@ -967,7 +1039,7 @@ async function importProject(file) {
     if (project.format !== 'data-insight-project' || !Array.isArray(project.rows) || project.rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new Error('El archivo no es un proyecto Data Insight válido.');
     const meta = project.meta && typeof project.meta === 'object' ? project.meta : {};
     const kind = ['synthetic', 'pasted', 'local'].includes(meta.kind) ? meta.kind : 'local';
-    loadRows(project.rows, { name: typeof meta.name === 'string' && meta.name.trim() ? meta.name : file.name, kind, detail: typeof meta.detail === 'string' ? meta.detail : 'Proyecto local procesado en este navegador.' });
+    loadRows(project.rows, { name: typeof meta.name === 'string' && meta.name.trim() ? meta.name : file.name, kind, detail: typeof meta.detail === 'string' ? meta.detail : 'Proyecto local procesado en este navegador.', geojsonFeatures: Array.isArray(project.geojsonFeatures) ? project.geojsonFeatures : [] });
     transformationHistory.length = 0;
     state.filters = sanitizeFilters(project.filters);
     state.search = typeof project.search === 'string' ? project.search.slice(0, 500) : '';
@@ -1081,10 +1153,12 @@ function showCardEditor(card) {
     card.seriesField = hasColumn(modal.querySelector('#card-editor-series').value) && modal.querySelector('#card-editor-series').value !== card.xField ? modal.querySelector('#card-editor-series').value : '';
     card.aggregation = AGGREGATIONS.includes(modal.querySelector('#card-editor-aggregation').value) ? modal.querySelector('#card-editor-aggregation').value : 'count';
     card.chartSort = SORT_MODES.includes(modal.querySelector('#card-editor-sort').value) ? modal.querySelector('#card-editor-sort').value : 'original';
-    if (['map', 'bubble-map', 'density-map'].includes(card.chartType)) {
+    if (MAP_CHART_TYPES.includes(card.chartType)) {
       const geo = coordinates();
-      card.xField = geo.longitude || card.xField;
-      card.yField = geo.latitude || card.yField;
+      if (card.chartType !== 'choropleth-map') {
+        card.xField = geo.longitude || card.xField;
+        card.yField = geo.latitude || card.yField;
+      }
       if (card.chartType === 'map' || !card.secondaryField) card.aggregation = 'count';
       card.seriesField = '';
     }

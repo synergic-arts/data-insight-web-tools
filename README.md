@@ -4,8 +4,8 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 
 ## Incluye
 
-- **Dashboard Studio**: KPIs, tablas y 23 familias de visualización: barras simples, agrupadas y apiladas, líneas, áreas simples y apiladas, combinado de barras y línea, proyección lineal descriptiva, anillos, dispersión, histogramas, cajas, mapas de puntos, mapas de burbujas, densidad por cuadrícula WGS84, calor bivariado, matriz de correlación, embudo, cascada, radar, treemap, Sankey de flujos y Pareto.
-- **Mapas Leaflet configurables**: los mapas de puntos, burbujas y densidad muestran las filas filtradas sobre OpenStreetMap o bases Esri de calles, oscuro y satélite; incluyen control de capas, zoom, ajuste a la extensión, atribución, tooltips y ficha emergente con todos los atributos del registro.
+- **Dashboard Studio**: KPIs, tablas y 24 familias de visualización: barras simples, agrupadas y apiladas, líneas, áreas simples y apiladas, combinado de barras y línea, proyección lineal descriptiva, anillos, dispersión, histogramas, cajas, mapas de puntos, mapas de burbujas, densidad por cuadrícula WGS84, mapas coropléticos GeoJSON, calor bivariado, matriz de correlación, embudo, cascada, radar, treemap, Sankey de flujos y Pareto.
+- **Mapas Leaflet configurables**: los mapas de puntos, burbujas, densidad y coropléticos muestran las filas filtradas sobre OpenStreetMap o bases Esri de calles, oscuro y satélite; incluyen control de capas, geometrías GeoJSON activables, zoom, ajuste a la extensión, atribución, tooltips, leyenda temática y ficha emergente con todos los atributos del registro.
 - **Data Profiler**: vacíos, duplicados exactos, tipos, cardinalidad, media, mediana, rangos y cobertura por campo.
 - **Transform Lab**: filtros combinados, búsqueda, campos calculados aritméticos y exportación.
 - **Pivot Lab**: agrupaciones y agregaciones locales por categoría, comparación visual y exportación del resumen.
@@ -22,7 +22,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Escalas firmadas para gráficos de barras y líneas, con línea cero y tooltips accesibles para valores negativos y positivos.
 - Recuento automático por categoría cuando el conjunto no contiene métricas numéricas; el anillo rechaza valores negativos o sin total interpretable.
 - Detección de coordenadas por alias habituales (`lat`, `latitude`, `latitud`, `lon`, `lng`, `longitude`, `longitud`, `x`, `y`), mapas de puntos con tooltips por registro y burbujas agregadas por coordenadas coincidentes; el mapa no inventa una cartografía base cuando solo hay coordenadas.
-- Coordenadas profesionales en decimal o DMS (`39:47:31.2N`, `3°42'36.0W`), autodetección de alias Este/Norte y conversión local de geometrías GeoJSON declaradas como Web Mercator (EPSG:3857/900913) o UTM ETRS89/WGS84 (EPSG:258xx/326xx/327xx) a WGS84, conservando el CRS detectado como metadato.
+- Coordenadas profesionales en decimal o DMS (`39:47:31.2N`, `3°42'36.0W`), autodetección de alias Este/Norte y conversión local de geometrías GeoJSON declaradas como Web Mercator (EPSG:3857/900913) o UTM ETRS89/WGS84 (EPSG:258xx/326xx/327xx) a WGS84, conservando el CRS detectado como metadato. Las geometrías Polygon/MultiPolygon se conservan como capa vectorial local para mapas de puntos y mapas coropléticos.
 - Mapa de densidad por cuadrícula: divide la extensión real de las coordenadas en celdas, muestra la concentración de registros y conserva en cada celda el rango lon/lat y el recuento; no debe confundirse con una superficie estadística interpolada.
 - Exportación SVG de la visualización activa para conservar escala vectorial, etiquetas y tooltips del gráfico en un archivo portable.
 - Panel automático enriquecido: añade suma, media, completitud, distribución, evolución temporal, relación entre métricas, puntos espaciales, densidad y tabla cuando el esquema contiene los campos necesarios.
