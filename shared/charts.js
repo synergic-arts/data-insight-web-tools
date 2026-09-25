@@ -1,4 +1,4 @@
-import { state, esc, format, toNumber, isMissing } from './data.js';
+import { state, esc, format, toNumber, toCoordinate, isMissing } from './data.js';
 
 const COLORS = ['#67e8f9', '#a78bfa', '#fbbf24', '#34d399', '#fb7185', '#60a5fa', '#c084fc', '#2dd4bf', '#f97316', '#f472b6'];
 
@@ -300,8 +300,8 @@ function boxPlotChart(rows, xField, yField, ordering) {
 
 function mapChart(rows, longitudeField, latitudeField, bubbles = false) {
   const rawPoints = rows.map((row, index) => ({
-    longitude: toNumber(row[longitudeField]),
-    latitude: toNumber(row[latitudeField]),
+    longitude: toCoordinate(row[longitudeField]),
+    latitude: toCoordinate(row[latitudeField]),
     label: row.name ?? row.site ?? row.title ?? `Fila ${index + 1}`,
     row
   })).filter(point => point.longitude !== null && point.latitude !== null && Math.abs(point.longitude) <= 180 && Math.abs(point.latitude) <= 90).slice(0, 500);
@@ -323,8 +323,8 @@ function mapChart(rows, longitudeField, latitudeField, bubbles = false) {
 
 function densityMapChart(rows, longitudeField, latitudeField) {
   const points = rows.map((row, index) => ({
-    longitude: toNumber(row[longitudeField]),
-    latitude: toNumber(row[latitudeField]),
+    longitude: toCoordinate(row[longitudeField]),
+    latitude: toCoordinate(row[latitudeField]),
     label: row.name ?? row.site ?? row.title ?? `Fila ${index + 1}`
   })).filter(point => point.longitude !== null && point.latitude !== null && Math.abs(point.longitude) <= 180 && Math.abs(point.latitude) <= 90).slice(0, 2000);
   if (!points.length) return emptyChart('Selecciona longitud y latitud numéricas para calcular la densidad');

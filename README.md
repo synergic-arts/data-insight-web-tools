@@ -19,6 +19,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 - Escalas firmadas para gráficos de barras y líneas, con línea cero y tooltips accesibles para valores negativos y positivos.
 - Recuento automático por categoría cuando el conjunto no contiene métricas numéricas; el anillo rechaza valores negativos o sin total interpretable.
 - Detección de coordenadas por alias habituales (`lat`, `latitude`, `latitud`, `lon`, `lng`, `longitude`, `longitud`, `x`, `y`), mapas de puntos con tooltips por registro y burbujas agregadas por coordenadas coincidentes; el mapa no inventa una cartografía base cuando solo hay coordenadas.
+- Coordenadas profesionales en decimal o DMS (`39:47:31.2N`, `3°42'36.0W`) y conversión local de geometrías GeoJSON declaradas como Web Mercator (EPSG:3857/900913) a WGS84, conservando el CRS detectado como metadato.
 - Mapa de densidad por cuadrícula: divide la extensión real de las coordenadas en celdas, muestra la concentración de registros y conserva en cada celda el rango lon/lat y el recuento; no debe confundirse con una superficie estadística interpolada.
 - Exportación SVG de la visualización activa para conservar escala vectorial, etiquetas y tooltips del gráfico en un archivo portable.
 - Panel automático enriquecido: añade suma, media, completitud, distribución, evolución temporal, relación entre métricas, puntos espaciales, densidad y tabla cuando el esquema contiene los campos necesarios.

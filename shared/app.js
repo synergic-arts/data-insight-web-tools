@@ -970,6 +970,27 @@ function showCardEditor(card) {
     card.seriesField = hasColumn(modal.querySelector('#card-editor-series').value) && modal.querySelector('#card-editor-series').value !== card.xField ? modal.querySelector('#card-editor-series').value : '';
     card.aggregation = AGGREGATIONS.includes(modal.querySelector('#card-editor-aggregation').value) ? modal.querySelector('#card-editor-aggregation').value : 'count';
     card.chartSort = SORT_MODES.includes(modal.querySelector('#card-editor-sort').value) ? modal.querySelector('#card-editor-sort').value : 'original';
+    if (['map', 'bubble-map', 'density-map'].includes(card.chartType)) {
+      const geo = coordinates();
+      card.xField = geo.longitude || card.xField;
+      card.yField = geo.latitude || card.yField;
+      card.aggregation = 'count';
+      card.secondaryField = '';
+      card.seriesField = '';
+    }
+    if (['scatter', 'heatmap', 'correlation'].includes(card.chartType)) {
+      const numbers = analysisNumericColumns();
+      card.xField = numbers.find(column => column.name === card.xField)?.name || numbers[0]?.name || card.xField;
+      card.yField = numbers.find(column => column.name === card.yField && column.name !== card.xField)?.name || numbers.find(column => column.name !== card.xField)?.name || card.yField;
+      card.secondaryField = '';
+      card.seriesField = '';
+      if (card.chartType === 'correlation') card.aggregation = 'count';
+    }
+    if (card.chartType === 'sankey') {
+      const flow = bestFlowFields();
+      card.xField = flow.source || card.xField;
+      card.seriesField = flow.target || card.seriesField;
+    }
     state.dashboard = sanitizeDashboard(state.dashboard);
     close();
     renderAll();

@@ -57,6 +57,31 @@ export function toNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+// Acepta coordenadas decimales y formatos habituales de grados/minutos/segundos
+// (por ejemplo, "39°47'31.2N" o "-3.70"). No se aplica a métricas generales.
+export function toCoordinate(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const text = String(value).trim();
+  const hemisphere = text.match(/([NSEW])\s*$/i)?.[1]?.toUpperCase() || '';
+  const parts = text.replace(/[NSEW]/gi, '').match(/[+-]?\d+(?:[.,]\d+)?/g);
+  if (parts && parts.length >= 2 && /[°º'′"″:]/.test(text)) {
+    const degrees = Number(parts[0].replace(',', '.'));
+    const minutes = Number(parts[1].replace(',', '.')) || 0;
+    const seconds = Number(parts[2]?.replace(',', '.') || 0);
+    if (Number.isFinite(degrees) && Number.isFinite(minutes) && Number.isFinite(seconds) && minutes < 60 && seconds < 60) {
+      let result = Math.abs(degrees) + minutes / 60 + seconds / 3600;
+      if (degrees < 0 || hemisphere === 'S' || hemisphere === 'W') result = -Math.abs(result);
+      return result;
+    }
+  }
+  const decimal = toNumber(text.replace(/[NSEW]/gi, ''));
+  if (decimal === null) return null;
+  if (hemisphere === 'N' || hemisphere === 'E') return Math.abs(decimal);
+  if (hemisphere === 'S' || hemisphere === 'W') return -Math.abs(decimal);
+  return decimal;
+}
+
 export function isMissing(value) {
   return value === null || value === undefined || String(value).trim() === '';
 }
@@ -90,8 +115,8 @@ export function geoFields(columns = state.columns) {
   const names = columns.map(column => column.name);
   const find = patterns => names.find(name => patterns.some(pattern => pattern.test(name))) || '';
   return {
-    longitude: find([/^lon(?:gitude)?$/i, /^lng$/i, /longitud/i, /longitude/i, /coord[_ ]?x$/i, /^x$/i]),
-    latitude: find([/^lat(?:itude)?$/i, /latitud/i, /latitude/i, /coord[_ ]?y$/i, /^y$/i])
+    longitude: find([/^lon(?:gitude)?(?:[_ -]?wgs84)?$/i, /^lng(?:[_ -]?wgs84)?$/i, /longitud/i, /longitude/i, /coord[_ ]?x/i, /^x$/i]),
+    latitude: find([/^lat(?:itude)?(?:[_ -]?wgs84)?$/i, /latitud/i, /latitude/i, /coord[_ ]?y/i, /^y$/i])
   };
 }
 
@@ -153,21 +178,32 @@ export function parseAny(text, fileName = '') {
     try {
       const parsed = JSON.parse(trimmed);
       if (parsed.type === 'FeatureCollection' && Array.isArray(parsed.features)) {
+        const declaredCRS = parsed.crs?.properties?.name || parsed.crs?.properties?.href || parsed.crs?.name || '';
+        const isWebMercator = /3857|900913|web.?mercator/i.test(String(declaredCRS));
+        const projectPair = pair => {
+          if (!isWebMercator) return pair;
+          const radius = 6378137;
+          const longitude = pair[0] / radius * 180 / Math.PI;
+          const normalizedY = pair[1] / radius * 180 / Math.PI;
+          const latitude = 180 / Math.PI * (2 * Math.atan(Math.exp(normalizedY * Math.PI / 180)) - Math.PI / 2);
+          return [longitude, latitude];
+        };
         return parsed.features.filter(feature => feature && typeof feature === 'object').map((feature, index) => {
           const properties = { ...(feature.properties || {}), feature_id: feature.id ?? index + 1 };
           const coordinates = feature.geometry?.coordinates;
           if (Array.isArray(coordinates)) {
             const pairs = [];
-            const collect = value => { if (Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'number') pairs.push(value); else if (Array.isArray(value)) value.forEach(collect); };
+            const collect = value => { if (Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'number') pairs.push(projectPair(value)); else if (Array.isArray(value)) value.forEach(collect); };
             collect(coordinates);
             if (pairs.length) {
               const longitudes = pairs.map(pair => pair[0]);
               const latitudes = pairs.map(pair => pair[1]);
-              properties.longitude = (Math.min(...longitudes) + Math.max(...longitudes)) / 2;
-              properties.latitude = (Math.min(...latitudes) + Math.max(...latitudes)) / 2;
+              if (isWebMercator || properties.longitude === undefined) properties.longitude = (Math.min(...longitudes) + Math.max(...longitudes)) / 2;
+              if (isWebMercator || properties.latitude === undefined) properties.latitude = (Math.min(...latitudes) + Math.max(...latitudes)) / 2;
             }
           }
           properties.geometry_type = feature.geometry?.type || '';
+          if (declaredCRS) properties.coordinate_crs = isWebMercator ? `EPSG:4326 · convertido desde ${declaredCRS}` : declaredCRS;
           return properties;
         });
       }
