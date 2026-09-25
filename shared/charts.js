@@ -510,6 +510,59 @@ function treemapChart(rows, xField, yField, aggregation, ordering) {
   return chartFrame('<text class="chart-axis-title" x="62" y="20">Treemap · ' + esc(yField) + '</text>' + marks, 'Treemap');
 }
 
+function sankeyChart(rows, sourceField, valueField, targetField, aggregation) {
+  if (!targetField || targetField === sourceField) return emptyChart('El flujo necesita campos origen y destino distintos');
+  const links = new Map();
+  rows.forEach(row => {
+    const source = String(row[sourceField] ?? 'Sin origen');
+    const target = String(row[targetField] ?? 'Sin destino');
+    const key = source + '\u0000' + target;
+    if (!links.has(key)) links.set(key, []);
+    links.get(key).push(row);
+  });
+  const values = [...links.entries()].map(([key, items]) => {
+    const [source, target] = key.split('\u0000');
+    return { source, target, value: aggregateValue(items, valueField, aggregation) };
+  }).filter(link => link.value !== null && link.value > 0).sort((left, right) => right.value - left.value).slice(0, 80);
+  if (!values.length) return emptyChart('No hay flujos positivos que representar');
+  const sources = [...new Set(values.map(link => link.source))].slice(0, 8);
+  const targets = [...new Set(values.map(link => link.target))].slice(0, 8);
+  const filtered = values.filter(link => sources.includes(link.source) && targets.includes(link.target));
+  const total = filtered.reduce((sum, link) => sum + link.value, 0);
+  if (!total) return emptyChart();
+  const sourceTotals = new Map(sources.map(source => [source, filtered.filter(link => link.source === source).reduce((sum, link) => sum + link.value, 0)]));
+  const targetTotals = new Map(targets.map(target => [target, filtered.filter(link => link.target === target).reduce((sum, link) => sum + link.value, 0)]));
+  const nodeHeight = amount => Math.max(14, amount / total * 184);
+  const layout = (names, totals, x) => {
+    const gap = 8;
+    const heights = names.map(name => nodeHeight(totals.get(name)));
+    const used = heights.reduce((sum, height) => sum + height, 0) + Math.max(0, names.length - 1) * gap;
+    let y = 54 + Math.max(0, (184 - used) / 2);
+    return new Map(names.map((name, index) => { const item = { x, y, height: heights[index] }; y += heights[index] + gap; return [name, item]; }));
+  };
+  const sourceLayout = layout(sources, sourceTotals, 120);
+  const targetLayout = layout(targets, targetTotals, 620);
+  const sourceCursor = new Map(sources.map(source => [source, 0]));
+  const targetCursor = new Map(targets.map(target => [target, 0]));
+  const ribbons = filtered.map((link, index) => {
+    const source = sourceLayout.get(link.source);
+    const target = targetLayout.get(link.target);
+    const sourceThickness = Math.max(2, link.value / sourceTotals.get(link.source) * source.height);
+    const targetThickness = Math.max(2, link.value / targetTotals.get(link.target) * target.height);
+    const sourceY = source.y + sourceCursor.get(link.source) + sourceThickness / 2;
+    const targetY = target.y + targetCursor.get(link.target) + targetThickness / 2;
+    sourceCursor.set(link.source, sourceCursor.get(link.source) + sourceThickness);
+    targetCursor.set(link.target, targetCursor.get(link.target) + targetThickness);
+    return '<path d="M 248 ' + sourceY.toFixed(1) + ' C 370 ' + sourceY.toFixed(1) + ' 490 ' + targetY.toFixed(1) + ' 572 ' + targetY.toFixed(1) + '" fill="none" stroke="' + COLORS[index % COLORS.length] + '" stroke-width="' + Math.max(2, Math.min(26, (sourceThickness + targetThickness) / 2)).toFixed(1) + '" opacity=".62"><title>' + esc(link.source) + ' → ' + esc(link.target) + ': ' + format(link.value, 1) + '</title></path>';
+  }).join('');
+  const nodeMarkup = [...sources.map((name, index) => ({ name, item: sourceLayout.get(name), side: 'Origen', color: COLORS[index % COLORS.length] })), ...targets.map((name, index) => ({ name, item: targetLayout.get(name), side: 'Destino', color: COLORS[(index + sources.length) % COLORS.length] }))].map(node => {
+    const labelX = node.item.x < 400 ? node.item.x - 10 : node.item.x + 60;
+    const anchor = node.item.x < 400 ? 'end' : 'start';
+    return '<g><rect x="' + node.item.x + '" y="' + node.item.y.toFixed(1) + '" width="50" height="' + node.item.height.toFixed(1) + '" rx="7" fill="' + node.color + '" opacity=".9"><title>' + esc(node.side + ': ' + node.name) + '</title></rect><text class="chart-axis-label" x="' + labelX + '" y="' + (node.item.y + node.item.height / 2 + 4).toFixed(1) + '" text-anchor="' + anchor + '">' + axisLabel(node.name) + '</text></g>';
+  }).join('');
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">Flujo · ' + esc(sourceField) + ' → ' + esc(targetField) + ' · ' + esc(valueField) + '</text><text class="chart-axis-label" x="145" y="38">origen</text><text class="chart-axis-label" x="620" y="38">destino</text>' + ribbons + nodeMarkup, 'Diagrama Sankey de flujo');
+}
+
 export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original', seriesField = '', secondaryField = '') {
   if (type === 'grouped-bar') return multiBarChart(rows, xField, yField, seriesField, aggregation, ordering, false);
   if (type === 'stacked-bar') return multiBarChart(rows, xField, yField, seriesField, aggregation, ordering, true);
@@ -531,6 +584,7 @@ export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'or
   if (type === 'waterfall') return waterfallChart(rows, xField, yField, aggregation, ordering);
   if (type === 'radar') return radarChart(rows, xField, yField, aggregation, ordering);
   if (type === 'treemap') return treemapChart(rows, xField, yField, aggregation, ordering);
+  if (type === 'sankey') return sankeyChart(rows, xField, yField, seriesField, aggregation);
   if (type === 'pareto') return paretoChart(rows, xField, yField, aggregation, ordering);
   return signedBarChart(rows, xField, yField, aggregation, ordering);
 }

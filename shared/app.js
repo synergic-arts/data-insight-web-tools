@@ -6,8 +6,8 @@ const transformationHistory = [];
 const mode = root.dataset.mode || 'dashboard';
 const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'analyze' : 'overview';
 const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
-const CHART_TYPES = ['bar', 'grouped-bar', 'stacked-bar', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'funnel', 'waterfall', 'radar', 'treemap', 'pareto'];
-const CHART_LABELS = { bar: 'Barras', 'grouped-bar': 'Barras agrupadas', 'stacked-bar': 'Barras apiladas', line: 'Línea', area: 'Área', 'stacked-area': 'Área apilada', combo: 'Combinado', forecast: 'Proyección', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', heatmap: 'Mapa de calor bivariado', correlation: 'Matriz de correlación', funnel: 'Embudo', waterfall: 'Cascada', radar: 'Radar', treemap: 'Treemap', pareto: 'Pareto' };
+const CHART_TYPES = ['bar', 'grouped-bar', 'stacked-bar', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'funnel', 'waterfall', 'radar', 'treemap', 'sankey', 'pareto'];
+const CHART_LABELS = { bar: 'Barras', 'grouped-bar': 'Barras agrupadas', 'stacked-bar': 'Barras apiladas', line: 'Línea', area: 'Área', 'stacked-area': 'Área apilada', combo: 'Combinado', forecast: 'Proyección', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', heatmap: 'Mapa de calor bivariado', correlation: 'Matriz de correlación', funnel: 'Embudo', waterfall: 'Cascada', radar: 'Radar', treemap: 'Treemap', sankey: 'Sankey de flujos', pareto: 'Pareto' };
 const AGGREGATIONS = ['sum', 'avg', 'count'];
 const SORT_MODES = ['original', 'value-desc', 'value-asc'];
 const numericColumns = () => state.columns.filter(column => column.type === 'number');
@@ -29,6 +29,13 @@ function bestSeriesField(exclude = '') {
     .sort((left, right) => Number(preferred.test(right.name)) - Number(preferred.test(left.name)) || left.unique - right.unique)[0]?.name || '';
 }
 
+function bestFlowFields() {
+  const text = state.columns.filter(column => column.type === 'text');
+  const source = text.find(column => /^(source|origen|from|salida|procedencia|origin)$/i.test(column.name) || /source|origen|procedencia|salida/i.test(column.name));
+  const target = text.find(column => column.name !== source?.name && (/^(target|destino|to|llegada|entrada|destination)$/i.test(column.name) || /target|destino|llegada|entrada/i.test(column.name)));
+  return { source: source?.name || '', target: target?.name || '' };
+}
+
 function bestSecondaryField(exclude = '') {
   return analysisNumericColumns().find(column => column.name !== exclude)?.name || '';
 }
@@ -41,7 +48,7 @@ function safeSpan(value, fallback, maximum = 12) {
 function layoutDefaults(card) {
   if (card.type === 'kpi') return { colSpan: 3, rowSpan: 1 };
   if (card.type === 'table') return { colSpan: 12, rowSpan: 2 };
-  if (['map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'scatter', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'grouped-bar', 'stacked-bar', 'pareto'].includes(card.chartType)) return { colSpan: 6, rowSpan: 2 };
+  if (['map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'scatter', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'grouped-bar', 'stacked-bar', 'sankey', 'pareto'].includes(card.chartType)) return { colSpan: 6, rowSpan: 2 };
   return { colSpan: 4, rowSpan: 2 };
 }
 
@@ -121,6 +128,8 @@ function defaultDashboard() {
   if (temporal && analysisNumbers.length >= 2) cards.push({ id: 'chart-combo', type: 'chart', title: 'Comparación de métricas', chartType: 'combo', xField: temporal.name, yField: analysisNumbers[0].name, secondaryField: analysisNumbers[1].name, aggregation: 'sum', chartSort: 'original' });
   if (analysisNumbers.length >= 2) cards.push({ id: 'chart-relation', type: 'chart', title: 'Relación entre métricas', chartType: 'scatter', xField: analysisNumbers[0].name, yField: analysisNumbers[1].name, aggregation: 'sum' });
   if (analysisNumbers.length >= 3) cards.push({ id: 'chart-correlation', type: 'chart', title: 'Correlaciones entre métricas', chartType: 'correlation', xField: analysisNumbers[0].name, yField: analysisNumbers[1].name, aggregation: 'count' });
+  const flow = bestFlowFields();
+  if (flow.source && flow.target && numeric) cards.push({ id: 'chart-flow', type: 'chart', title: 'Flujos entre categorías', chartType: 'sankey', xField: flow.source, yField: numeric, seriesField: flow.target, aggregation: 'sum' });
   if (geo.longitude && geo.latitude) cards.push({ id: 'map-main', type: 'chart', title: 'Distribución espacial', chartType: 'map', xField: geo.longitude, yField: geo.latitude, aggregation: 'count' });
   if (geo.longitude && geo.latitude) cards.push({ id: 'density-main', type: 'chart', title: 'Concentración espacial', chartType: 'density-map', xField: geo.longitude, yField: geo.latitude, aggregation: 'count' });
   cards.push({ id: 'table-main', type: 'table', title: 'Registros filtrados' });
@@ -235,7 +244,8 @@ function renderAnalyze() {
   if (state.aggregation !== aggregation) state.aggregation = aggregation;
   const disabledMetricOptions = hasMetric ? '' : ' disabled';
   const geo = coordinates();
-  const helper = hasMetric ? `Los gráficos se calculan en memoria con las filas filtradas. ${geo.longitude && geo.latitude ? `Se detectan coordenadas ${geo.longitude}/${geo.latitude}; prueba un mapa de puntos, burbujas o densidad.` : 'Puedes cargar un GeoJSON o campos lon/lat para activar el mapa.'} ${analysisNumericColumns().length > 1 ? 'El mapa de calor, el combinado y la matriz de correlación comparan métricas compatibles.' : ''}` : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
+  const flow = bestFlowFields();
+  const helper = hasMetric ? `Los gráficos se calculan en memoria con las filas filtradas. ${geo.longitude && geo.latitude ? `Se detectan coordenadas ${geo.longitude}/${geo.latitude}; prueba un mapa de puntos, burbujas o densidad.` : 'Puedes cargar un GeoJSON o campos lon/lat para activar el mapa.'} ${flow.source && flow.target ? `Se detecta un flujo ${flow.source} → ${flow.target}; prueba el Sankey.` : ''} ${analysisNumericColumns().length > 1 ? 'El mapa de calor, el combinado y la matriz de correlación comparan métricas compatibles.' : ''}` : 'No hay campos numéricos: se muestra un recuento por dimensión y puedes seguir explorando las categorías.';
   const previewTitle = state.chartTitle || `${state.yField} por ${state.xField}`;
   const chartOptions = Object.entries(CHART_LABELS).map(([value, label]) => `<option value="${value}" ${state.chartType === value ? 'selected' : ''}>${label}</option>`).join('');
   return `<div class="analysis-layout"><aside class="analysis-controls panel"><div class="panel-heading"><div><span class="eyebrow">Configurar</span><h3>Visual actual</h3></div></div><label>Dimensión / X<span>${fieldSelect('x-field', state.xField)}</span></label><label>Métrica / Y<span>${fieldSelect('y-field', state.yField, hasMetric)}</span></label><label>Métrica secundaria<span>${fieldSelect('secondary-field', state.secondaryField, true, true, 'Sin segunda métrica')}</span></label><label>Serie / color<span>${fieldSelect('series-field', state.seriesField, false, true)}</span></label><label>Tipo de gráfico<select id="chart-type">${chartOptions}</select></label><label>Agregación<select id="aggregation"><option value="sum" ${aggregation === 'sum' ? 'selected' : ''}${disabledMetricOptions}>Suma</option><option value="avg" ${aggregation === 'avg' ? 'selected' : ''}${disabledMetricOptions}>Media</option><option value="count" ${aggregation === 'count' ? 'selected' : ''}>Recuento</option></select></label><label>Título de la visual<span><input id="chart-title" type="text" maxlength="80" value="${esc(state.chartTitle)}" aria-label="Título de la visual"></span></label><label>Orden de categorías<span><select id="chart-sort"><option value="original" ${state.chartSort === 'original' ? 'selected' : ''}>Orden de aparición</option><option value="value-desc" ${state.chartSort === 'value-desc' ? 'selected' : ''}>Mayor a menor valor</option><option value="value-asc" ${state.chartSort === 'value-asc' ? 'selected' : ''}>Menor a mayor valor</option></select></span></label><button class="button button-primary wide" data-action="add-chart">Añadir al dashboard</button><p class="helper">${helper}</p></aside><section class="panel analysis-result"><div class="panel-heading"><div><span class="eyebrow">Vista previa</span><h3>${esc(previewTitle)}</h3></div><div class="panel-heading-actions"><span class="panel-note">${format(state.filtered.length, 0)} filas</span><button class="button button-ghost" data-action="export-svg">Exportar SVG</button></div></div><div class="chart-wrap chart-large">${chartSVG(state.chartType, state.filtered, state.xField, state.yField, aggregation, state.chartSort, state.seriesField, state.secondaryField)}</div></section></div><div class="panel"><div class="panel-heading"><div><span class="eyebrow">Datos de respaldo</span><h3>Filas que alimentan la visual</h3></div></div>${tableHTML(state.filtered, state.columns, 10)}</div>`;
@@ -369,7 +379,7 @@ async function askLocalModel(request = '', mode = 'analysis') {
   }
   const profile = compactDataProfile();
   const prompt = mode === 'plan'
-    ? `Actúa como un planificador de operaciones de datos. Devuelve SOLO un objeto JSON válido, sin markdown ni explicación. Elige una sola acción: chart o treatment. Para chart usa exactamente este esquema: {"action":"chart","chartType":"bar|grouped-bar|stacked-bar|line|area|stacked-area|combo|forecast|donut|scatter|histogram|boxplot|map|bubble-map|density-map|heatmap|correlation|funnel|waterfall|radar|treemap|pareto","xField":"nombre exacto","yField":"nombre exacto","secondaryField":"segunda métrica numérica o cadena vacía","seriesField":"campo de serie o cadena vacía","aggregation":"sum|avg|count","chartSort":"original|value-desc|value-asc","title":"título breve"}. Para treatment usa: {"action":"treatment","command":"orden breve en español"}. Solo puedes usar nombres de campos que aparezcan en el perfil. No inventes campos, coordenadas ni valores. La orden treatment debe ser una de estas operaciones: eliminar duplicados, eliminar filas vacías, rellenar faltantes, limpiar espacios, normalizar un campo numérico, detectar atípicos o segmentar un campo numérico. Petición: ${request || 'elige un análisis útil'}. Perfil: ${JSON.stringify(profile)}`
+    ? `Actúa como un planificador de operaciones de datos. Devuelve SOLO un objeto JSON válido, sin markdown ni explicación. Elige una sola acción: chart o treatment. Para chart usa exactamente este esquema: {"action":"chart","chartType":"bar|grouped-bar|stacked-bar|line|area|stacked-area|combo|forecast|donut|scatter|histogram|boxplot|map|bubble-map|density-map|heatmap|correlation|funnel|waterfall|radar|treemap|sankey|pareto","xField":"nombre exacto","yField":"nombre exacto","secondaryField":"segunda métrica numérica o cadena vacía","seriesField":"campo de serie o cadena vacía","aggregation":"sum|avg|count","chartSort":"original|value-desc|value-asc","title":"título breve"}. En sankey, xField es origen y seriesField es destino. Para treatment usa: {"action":"treatment","command":"orden breve en español"}. Solo puedes usar nombres de campos que aparezcan en el perfil. No inventes campos, coordenadas ni valores. La orden treatment debe ser una de estas operaciones: eliminar duplicados, eliminar filas vacías, rellenar faltantes, limpiar espacios, normalizar un campo numérico, detectar atípicos o segmentar un campo numérico. Petición: ${request || 'elige un análisis útil'}. Perfil: ${JSON.stringify(profile)}`
     : `Actúa como analista de datos. Responde en español, con prudencia y sin inventar. Analiza este perfil local y propone hasta cinco acciones concretas de limpieza, métricas o visualizaciones. Si el usuario ha pedido una operación, explica cómo ejecutarla con los campos disponibles y no inventes columnas. Si hay coordenadas, recomienda un mapa apropiado. No afirmes causalidad. Petición del usuario: ${request || 'sin petición adicional'}. Perfil: ${JSON.stringify(profile)}`;
   const answer = await state.aiSession.prompt(prompt);
   setAIStatus('Gemini Nano listo', 'ready');
@@ -398,6 +408,7 @@ function applyLocalPlan(plan) {
   const seriesField = typeof plan.seriesField === 'string' && hasColumn(plan.seriesField) && plan.seriesField !== xField ? plan.seriesField : '';
   const secondaryField = typeof plan.secondaryField === 'string' && hasColumn(plan.secondaryField, 'number') && plan.secondaryField !== yField ? plan.secondaryField : '';
   if (['grouped-bar', 'stacked-bar', 'stacked-area'].includes(chartType) && !seriesField) throw new Error('Esta visualización necesita un campo de serie distinto de la dimensión.');
+  if (chartType === 'sankey' && (!seriesField || seriesField === xField)) throw new Error('El Sankey necesita campos origen y destino distintos.');
   if (chartType === 'combo' && !secondaryField) throw new Error('El gráfico combinado necesita una segunda métrica numérica distinta.');
   if (chartType === 'correlation' && (!state.columns.find(column => column.name === xField && column.type === 'number') || !state.columns.find(column => column.name === yField && column.type === 'number'))) throw new Error('La matriz de correlación necesita campos numéricos.');
   const aggregation = AGGREGATIONS.includes(plan.aggregation) ? plan.aggregation : 'count';
@@ -428,6 +439,7 @@ function buildAssistantPlan(command) {
   const matches = assistantFieldMatches(text);
   const numeric = analysisNumericColumns();
   const geo = coordinates();
+  const flow = bestFlowFields();
   const temporal = state.columns.find(column => column.type === 'date' || /^(year|año|date|fecha|time|period|periodo)$/i.test(column.name));
   const dimension = matches.find(column => column.type === 'text' || column.type === 'date')?.name || state.columns.find(column => column.type === 'text')?.name || state.xField;
   const metric = matches.find(column => column.type === 'number' && !/^(id|_row_id|latitude|longitude|year|año)$/i.test(column.name))?.name || metricField();
@@ -435,7 +447,8 @@ function buildAssistantPlan(command) {
   let xField = dimension;
   let yField = metric || state.yField;
   let aggregation = 'sum';
-  if (/barras?\s+apilad|stacked/.test(normalized)) chartType = 'stacked-bar';
+  if (/sankey|flujo|origen.*destino|source.*target|procedencia.*destino/.test(normalized) && numeric.length) { chartType = 'sankey'; xField = flow.source || dimension; yField = metric; }
+  else if (/barras?\s+apilad|stacked/.test(normalized)) chartType = 'stacked-bar';
   else if (/area\s+apilad|área\s+apilad|stacked\s+area|composici[oó]n\s+temporal/.test(normalized)) chartType = 'stacked-area';
   else if (/combinad|mixto|barras?\s+y\s+l[ií]nea|combo/.test(normalized) && numeric.length >= 2) { chartType = 'combo'; xField = temporal?.name || dimension; yField = numeric[0].name; }
   else if (/proyecci[oó]n|previsi[oó]n|pron[oó]stico|forecast|tendencia futura/.test(normalized) && numeric.length) { chartType = 'forecast'; xField = temporal?.name || dimension; yField = metric; }
@@ -459,6 +472,7 @@ function buildAssistantPlan(command) {
   if (chartType === 'line' && !temporal && !matches.some(column => column.type === 'date')) xField = dimension;
   let seriesField = '';
   if (['grouped-bar', 'stacked-bar', 'stacked-area'].includes(chartType)) seriesField = bestSeriesField(xField);
+  if (chartType === 'sankey') seriesField = flow.target || bestSeriesField(xField);
   const secondaryField = chartType === 'combo' ? numeric.find(column => column.name !== yField)?.name || bestSecondaryField(yField) : '';
   const title = text ? text.replace(/\s+/g, ' ').slice(0, 80) : 'Visualización asistida';
   return { chartType, xField, yField, secondaryField, seriesField, aggregation, chartSort: /ranking|mayor|orden/.test(normalized) ? 'value-desc' : 'original', title };
@@ -1017,7 +1031,7 @@ function bind() {
     if (event.target.id === 'y-field') { state.yField = event.target.value; if (state.secondaryField === state.yField) state.secondaryField = bestSecondaryField(state.yField); renderAll(); }
     if (event.target.id === 'secondary-field') { state.secondaryField = hasColumn(event.target.value, 'number') && event.target.value !== state.yField ? event.target.value : ''; renderAll(); }
     if (event.target.id === 'series-field') { state.seriesField = hasColumn(event.target.value) && event.target.value !== state.xField ? event.target.value : ''; renderAll(); }
-    if (event.target.id === 'chart-type') { state.chartType = CHART_TYPES.includes(event.target.value) ? event.target.value : 'bar'; if (['map', 'bubble-map', 'density-map'].includes(state.chartType)) { const geo = coordinates(); state.xField = geo.longitude || state.xField; state.yField = geo.latitude || state.yField; state.secondaryField = ''; state.seriesField = ''; state.aggregation = 'count'; } if (['heatmap', 'scatter', 'correlation'].includes(state.chartType)) { const numbers = analysisNumericColumns(); state.xField = numbers[0]?.name || state.xField; state.yField = numbers[1]?.name || numbers[0]?.name || state.yField; state.secondaryField = ''; state.seriesField = ''; state.aggregation = ['heatmap', 'correlation'].includes(state.chartType) ? 'count' : state.aggregation; } if (['grouped-bar', 'stacked-bar', 'stacked-area'].includes(state.chartType)) state.seriesField = bestSeriesField(state.xField); if (state.chartType === 'combo') { const numbers = analysisNumericColumns(); state.xField = state.xField || state.columns.find(column => column.type === 'text')?.name || ''; state.yField = numbers[0]?.name || state.yField; state.secondaryField = numbers.find(column => column.name !== state.yField)?.name || ''; state.seriesField = ''; } renderAll(); }
+    if (event.target.id === 'chart-type') { state.chartType = CHART_TYPES.includes(event.target.value) ? event.target.value : 'bar'; if (['map', 'bubble-map', 'density-map'].includes(state.chartType)) { const geo = coordinates(); state.xField = geo.longitude || state.xField; state.yField = geo.latitude || state.yField; state.secondaryField = ''; state.seriesField = ''; state.aggregation = 'count'; } if (['heatmap', 'scatter', 'correlation'].includes(state.chartType)) { const numbers = analysisNumericColumns(); state.xField = numbers[0]?.name || state.xField; state.yField = numbers[1]?.name || numbers[0]?.name || state.yField; state.secondaryField = ''; state.seriesField = ''; state.aggregation = ['heatmap', 'correlation'].includes(state.chartType) ? 'count' : state.aggregation; } if (['grouped-bar', 'stacked-bar', 'stacked-area'].includes(state.chartType)) state.seriesField = bestSeriesField(state.xField); if (state.chartType === 'sankey') { const flow = bestFlowFields(); state.xField = flow.source || state.xField; state.seriesField = flow.target || bestSeriesField(state.xField); } if (state.chartType === 'combo') { const numbers = analysisNumericColumns(); state.xField = state.xField || state.columns.find(column => column.type === 'text')?.name || ''; state.yField = numbers[0]?.name || state.yField; state.secondaryField = numbers.find(column => column.name !== state.yField)?.name || ''; state.seriesField = ''; } renderAll(); }
     if (event.target.id === 'aggregation') { state.aggregation = event.target.value; renderAll(); }
     if (event.target.id === 'chart-sort') { state.chartSort = ['original', 'value-desc', 'value-asc'].includes(event.target.value) ? event.target.value : 'original'; renderAll(); }
     if (event.target.id === 'chart-title') { state.chartTitle = event.target.value.trim() || 'Visualización principal'; renderAll(); }

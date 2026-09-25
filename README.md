@@ -4,7 +4,7 @@ Colección de herramientas estáticas para análisis, tratamiento y comunicació
 
 ## Incluye
 
-- **Dashboard Studio**: KPIs, tablas y 22 familias de visualización: barras simples, agrupadas y apiladas, líneas, áreas simples y apiladas, combinado de barras y línea, proyección lineal descriptiva, anillos, dispersión, histogramas, cajas, mapas de puntos, mapas de burbujas, densidad por cuadrícula WGS84, calor bivariado, matriz de correlación, embudo, cascada, radar, treemap y Pareto.
+- **Dashboard Studio**: KPIs, tablas y 23 familias de visualización: barras simples, agrupadas y apiladas, líneas, áreas simples y apiladas, combinado de barras y línea, proyección lineal descriptiva, anillos, dispersión, histogramas, cajas, mapas de puntos, mapas de burbujas, densidad por cuadrícula WGS84, calor bivariado, matriz de correlación, embudo, cascada, radar, treemap, Sankey de flujos y Pareto.
 - **Data Profiler**: vacíos, duplicados exactos, tipos, cardinalidad, media, mediana, rangos y cobertura por campo.
 - **Transform Lab**: filtros combinados, búsqueda, campos calculados aritméticos y exportación.
 - **Pivot Lab**: agrupaciones y agregaciones locales por categoría, comparación visual y exportación del resumen.
