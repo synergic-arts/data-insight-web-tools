@@ -1,4 +1,4 @@
-import { state, esc, format, toNumber, toCoordinate, isMissing } from './data.js?v=20260925-24';
+import { state, esc, format, toNumber, toCoordinate, isMissing } from './data.js?v=20260925-25';
 
 const COLORS = ['#67e8f9', '#a78bfa', '#fbbf24', '#34d399', '#fb7185', '#60a5fa', '#c084fc', '#2dd4bf', '#f97316', '#f472b6'];
 
@@ -61,6 +61,14 @@ function axisLabel(value) {
 
 function chartFrame(content, title = '') {
   return `<svg class="chart-svg" viewBox="0 0 820 330" role="img" aria-label="${esc(title || 'Gráfico')}" preserveAspectRatio="xMidYMid meet"><g class="chart-grid"><line x1="62" y1="34" x2="62" y2="274"/><line x1="62" y1="274" x2="790" y2="274"/></g>${content}</svg>`;
+}
+
+function mapTooltip(x, y, label) {
+  const text = String(label).length > 76 ? `${String(label).slice(0, 73)}…` : String(label);
+  const width = Math.min(290, Math.max(132, text.length * 6.2 + 18));
+  const left = Math.min(810 - width, Math.max(70, x - width / 2));
+  const top = y < 82 ? y + 16 : y - 34;
+  return `<g class="map-tooltip" transform="translate(${left.toFixed(1)} ${top.toFixed(1)})"><rect width="${width.toFixed(1)}" height="24" rx="6"/><text x="9" y="16">${esc(text)}</text></g>`;
 }
 
 function barChart(rows, xField, yField, aggregation, ordering) {
@@ -316,7 +324,12 @@ function mapChart(rows, longitudeField, latitudeField, bubbles = false) {
   const x = value => 74 + ((value - (minLon - padLon)) / ((maxLon + padLon) - (minLon - padLon) || 1)) * 700;
   const y = value => 274 - ((value - (minLat - padLat)) / ((maxLat + padLat) - (minLat - padLat) || 1)) * 220;
   const grid = [0.25, 0.5, 0.75].map(step => `<line x1="${74 + step * 700}" y1="34" x2="${74 + step * 700}" y2="274"/><line x1="74" y1="${274 - step * 220}" x2="774" y2="${274 - step * 220}"/>`).join('');
-  const marks = points.map((point, index) => `<circle class="map-point" cx="${x(point.longitude).toFixed(1)}" cy="${y(point.latitude).toFixed(1)}" r="${bubbles ? Math.min(18, 5 + Math.sqrt(point.count) * 3) : 5}" fill="${COLORS[index % COLORS.length]}"><title>${esc(point.label)} · lon ${format(point.longitude, 5)} · lat ${format(point.latitude, 5)}${bubbles ? ` · ${point.count} registros` : ''}</title></circle>`).join('');
+  const marks = points.map((point, index) => {
+    const pointX = x(point.longitude);
+    const pointY = y(point.latitude);
+    const label = `${point.label} · lon ${format(point.longitude, 5)} · lat ${format(point.latitude, 5)}${bubbles ? ` · ${point.count} registros` : ''}`;
+    return `<g class="map-mark" tabindex="0" role="img" aria-label="${esc(label)}"><circle class="map-point" cx="${pointX.toFixed(1)}" cy="${pointY.toFixed(1)}" r="${bubbles ? Math.min(18, 5 + Math.sqrt(point.count) * 3) : 5}" fill="${COLORS[index % COLORS.length]}"><title>${esc(label)}</title></circle>${mapTooltip(pointX, pointY, label)}</g>`;
+  }).join('');
   const title = bubbles ? 'Mapa de burbujas · tamaño por registros coincidentes' : 'Mapa de puntos · coordenadas WGS84';
   return chartFrame(`<g class="map-grid">${grid}</g><text class="chart-axis-title" x="62" y="20">${title}</text>${marks}<text class="chart-axis-label" x="74" y="296">${format(minLon, 4)}°</text><text class="chart-axis-label" x="774" y="296" text-anchor="end">${format(maxLon, 4)}°</text><text class="chart-axis-label" x="58" y="40" text-anchor="end">${format(maxLat, 4)}°</text><text class="chart-axis-label" x="58" y="274" text-anchor="end">${format(minLat, 4)}°</text>`, bubbles ? 'Mapa de burbujas' : 'Mapa de puntos');
 }
@@ -362,7 +375,9 @@ function densityMapChart(rows, longitudeField, latitudeField) {
     const latB = top - rowIndex / rowsCount * (top - bottom);
     const latA = top - (rowIndex + 1) / rowsCount * (top - bottom);
     const label = `${cell.length} registros · lon ${format(lonA, 4)}–${format(lonB, 4)} · lat ${format(latA, 4)}–${format(latB, 4)}`;
-    return `<rect class="density-cell" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, cellWidth - 1).toFixed(1)}" height="${Math.max(1, cellHeight - 1).toFixed(1)}" rx="4" fill="${palette[intensity]}"><title>${esc(label)}</title></rect>`;
+    const centerX = x + cellWidth / 2;
+    const centerY = y + cellHeight / 2;
+    return `<g class="map-mark density-mark" tabindex="0" role="img" aria-label="${esc(label)}"><rect class="density-cell" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, cellWidth - 1).toFixed(1)}" height="${Math.max(1, cellHeight - 1).toFixed(1)}" rx="4" fill="${palette[intensity]}"><title>${esc(label)}</title></rect>${mapTooltip(centerX, centerY, label)}</g>`;
   })).join('');
   return chartFrame(`<g class="map-grid">${marks}</g><text class="chart-axis-title" x="62" y="20">Densidad por cuadrícula · ${points.length} coordenadas WGS84</text><text class="chart-axis-label" x="74" y="296">${format(minLon, 4)}°</text><text class="chart-axis-label" x="774" y="296" text-anchor="end">${format(maxLon, 4)}°</text><text class="chart-axis-label" x="58" y="40" text-anchor="end">${format(maxLat, 4)}°</text><text class="chart-axis-label" x="58" y="274" text-anchor="end">${format(minLat, 4)}°</text>`, 'Mapa de densidad por cuadrícula');
 }

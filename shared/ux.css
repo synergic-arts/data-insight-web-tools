@@ -10,5 +10,6 @@
 .editor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .editor-grid label{display:grid;gap:5px;color:var(--muted);font-size:.75rem}
 .editor-grid input,.editor-grid select{width:100%;min-height:40px;border:1px solid var(--line);border-radius:8px;background:#0b1e31;color:var(--text);padding:7px}
+.map-mark{outline:none;cursor:pointer}.map-mark .map-tooltip{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease,visibility .12s ease}.map-mark:hover .map-tooltip,.map-mark:focus .map-tooltip{opacity:1;visibility:visible}.map-tooltip rect{fill:#e9f7ff;stroke:#0a1726;stroke-width:1.5;filter:drop-shadow(0 4px 8px #0007)}.map-tooltip text{fill:#06121e!important;font-size:11px!important;font-weight:700;dominant-baseline:auto}.map-mark:focus .map-point,.map-mark:focus .density-cell{stroke:#fff;stroke-width:2.5}.density-mark .map-tooltip rect{fill:#f1fff9}
 @media(max-width:900px){.dashboard-grid>.dashboard-card{grid-column:span var(--card-col,12)}}
 @media(max-width:700px){.dashboard-grid{display:block}.dashboard-grid>.dashboard-card{display:block;margin-bottom:12px}.editor-grid{grid-template-columns:1fr}.dashboard-card .card-actions{max-width:none}}

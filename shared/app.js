@@ -1,5 +1,5 @@
-import { DEMO_ROWS, state, esc, format, toNumber, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js?v=20260925-24';
-import { chartSVG, tableHTML } from './charts.js?v=20260925-24';
+import { DEMO_ROWS, state, esc, format, toNumber, isMissing, parseAny, loadRows, rebuildColumns, applyFilters, geoFields } from './data.js?v=20260925-25';
+import { chartSVG, tableHTML } from './charts.js?v=20260925-25';
 
 const root = document.body;
 const transformationHistory = [];
