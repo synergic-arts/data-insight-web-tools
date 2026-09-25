@@ -25,6 +25,35 @@ function groupRows(rows, xField, yField, aggregation, ordering = 'original') {
   return result.slice(0, 24);
 }
 
+function aggregateValue(items, yField, aggregation) {
+  const numbers = items.map(item => toNumber(item[yField])).filter(value => value !== null);
+  if (aggregation === 'count') return items.length;
+  if (!numbers.length) return null;
+  return aggregation === 'avg' ? numbers.reduce((total, item) => total + item, 0) / numbers.length : numbers.reduce((total, item) => total + item, 0);
+}
+
+function seriesGroups(rows, xField, yField, seriesField, aggregation, ordering = 'original') {
+  if (!seriesField) return null;
+  const categories = new Map();
+  const series = new Set();
+  rows.forEach(row => {
+    const category = String(row[xField] ?? 'Sin valor');
+    const seriesName = String(row[seriesField] ?? 'Sin serie');
+    if (!categories.has(category)) categories.set(category, new Map());
+    const categoryRows = categories.get(category);
+    if (!categoryRows.has(seriesName)) categoryRows.set(seriesName, []);
+    categoryRows.get(seriesName).push(row);
+    series.add(seriesName);
+  });
+  const seriesNames = [...series].slice(0, 8);
+  const value = (category, seriesName) => aggregateValue(categories.get(category)?.get(seriesName) || [], yField, aggregation);
+  let categoryNames = [...categories.keys()];
+  const totals = category => seriesNames.reduce((sum, name) => sum + (value(category, name) ?? 0), 0);
+  if (ordering === 'value-desc') categoryNames.sort((left, right) => totals(right) - totals(left));
+  if (ordering === 'value-asc') categoryNames.sort((left, right) => totals(left) - totals(right));
+  return { categoryNames: categoryNames.slice(0, 18), seriesNames, value };
+}
+
 function axisLabel(value) {
   const text = String(value);
   return esc(text.length > 16 ? `${text.slice(0, 15)}…` : text);
@@ -265,6 +294,53 @@ function heatmapChart(rows, xField, yField) {
   return chartFrame(`<g class="map-grid">${marks}</g><text class="chart-axis-title" x="62" y="20">Mapa de calor bivariado · recuento por celda</text><text class="chart-axis-label" x="74" y="296">${format(minX, 2)}</text><text class="chart-axis-label" x="774" y="296" text-anchor="end">${format(maxX, 2)}</text><text class="chart-axis-label" x="58" y="40" text-anchor="end">${format(maxY, 2)}</text><text class="chart-axis-label" x="58" y="274" text-anchor="end">${format(minY, 2)}</text>`, `${xField} y ${yField} · mapa de calor`);
 }
 
+function multiBarChart(rows, xField, yField, seriesField, aggregation, ordering, stacked = false) {
+  const split = seriesGroups(rows, xField, yField, seriesField, aggregation, ordering);
+  if (!split || !split.categoryNames.length || !split.seriesNames.length) return emptyChart('Selecciona una serie categórica para comparar grupos');
+  const totals = split.categoryNames.map(category => split.seriesNames.reduce((sum, name) => sum + Math.max(0, split.value(category, name) ?? 0), 0));
+  const max = Math.max(...(stacked ? totals : split.categoryNames.flatMap(category => split.seriesNames.map(name => Math.max(0, split.value(category, name) ?? 0)))), 1);
+  const slot = 700 / split.categoryNames.length;
+  const bars = split.categoryNames.map((category, categoryIndex) => {
+    let offset = 0;
+    return split.seriesNames.map((seriesName, seriesIndex) => {
+      const value = Math.max(0, split.value(category, seriesName) ?? 0);
+      const width = stacked ? slot * .72 : slot * .72 / split.seriesNames.length;
+      const x = 74 + categoryIndex * slot + (stacked ? slot * .14 : slot * .14 + seriesIndex * width);
+      const height = value / max * 220;
+      const y = 274 - (stacked ? offset + height : height);
+      offset += stacked ? height : 0;
+      return `<g><title>${esc(category)} · ${esc(seriesName)}: ${format(value, 1)}</title><rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(2, width - 2).toFixed(1)}" height="${Math.max(2, height).toFixed(1)}" rx="5" fill="${COLORS[seriesIndex % COLORS.length]}"/><text class="chart-axis-label" x="${(x + width / 2).toFixed(1)}" y="${Math.max(30, y - 5).toFixed(1)}" text-anchor="middle">${format(value, 0)}</text></g>`;
+    }).join('') + (stacked ? '' : '');
+  }).join('');
+  const legend = split.seriesNames.map((name, index) => `<g transform="translate(${400 + (index % 4) * 96} ${8 + Math.floor(index / 4) * 15})"><rect width="9" height="9" rx="2" fill="${COLORS[index % COLORS.length]}"/><text class="chart-axis-label" x="14" y="8">${axisLabel(name)}</text></g>`).join('');
+  const labels = split.categoryNames.map((category, index) => `<text class="chart-axis-label" x="${(74 + index * slot + slot / 2).toFixed(1)}" y="296" text-anchor="middle">${axisLabel(category)}</text>`).join('');
+  return chartFrame(`<text class="chart-axis-title" x="62" y="20">${stacked ? 'Barras apiladas' : 'Barras agrupadas'} · ${esc(yField)}</text>${legend}${bars}${labels}`, `${xField} por ${yField} y ${seriesField}`);
+}
+
+function paretoChart(rows, xField, yField, aggregation, ordering) {
+  const groups = groupRows(rows, xField, yField, aggregation, 'value-desc').slice(0, 18);
+  if (!groups.length) return emptyChart();
+  const total = groups.reduce((sum, item) => sum + Math.max(0, item.value || 0), 0) || 1;
+  const max = Math.max(...groups.map(item => Math.max(0, item.value || 0)), 1);
+  const slot = 700 / groups.length;
+  let cumulative = 0;
+  const marks = groups.map((item, index) => {
+    const value = Math.max(0, item.value || 0);
+    cumulative += value;
+    const x = 74 + index * slot + slot * .14;
+    const width = slot * .72;
+    const height = value / max * 220;
+    const lineX = x + width / 2;
+    const lineY = 274 - cumulative / total * 220;
+    return `<g><title>${esc(item.label)}: ${format(value, 1)} · acumulado ${format(cumulative / total * 100, 1)}%</title><rect x="${x.toFixed(1)}" y="${(274 - height).toFixed(1)}" width="${width.toFixed(1)}" height="${Math.max(2, height).toFixed(1)}" rx="6" fill="${COLORS[index % COLORS.length]}"/><circle cx="${lineX.toFixed(1)}" cy="${lineY.toFixed(1)}" r="4" fill="#fbbf24"/><text class="chart-axis-label" x="${lineX.toFixed(1)}" y="296" text-anchor="middle">${axisLabel(item.label)}</text></g>`;
+  }).join('');
+  const points = groups.map((item, index) => {
+    const before = groups.slice(0, index + 1).reduce((sum, group) => sum + Math.max(0, group.value || 0), 0);
+    return `${(74 + index * slot + slot * .5).toFixed(1)},${(274 - before / total * 220).toFixed(1)}`;
+  }).join(' ');
+  return chartFrame(`<text class="chart-axis-title" x="62" y="20">Pareto · ${esc(yField)} ordenado de mayor a menor</text>${marks}<polyline points="${points}" fill="none" stroke="#fbbf24" stroke-width="3" stroke-linejoin="round"/><text class="chart-axis-label" x="790" y="42" text-anchor="end">100%</text>`, 'Pareto');
+}
+
 function funnelChart(rows, xField, yField, aggregation, ordering) {
   const groups = groupRows(rows, xField, yField, aggregation, ordering).filter(item => item.value >= 0).slice(0, 8);
   if (!groups.length) return emptyChart('El embudo necesita valores no negativos');
@@ -326,7 +402,9 @@ function treemapChart(rows, xField, yField, aggregation, ordering) {
   return chartFrame('<text class="chart-axis-title" x="62" y="20">Treemap · ' + esc(yField) + '</text>' + marks, 'Treemap');
 }
 
-export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original') {
+export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'original', seriesField = '') {
+  if (type === 'grouped-bar') return multiBarChart(rows, xField, yField, seriesField, aggregation, ordering, false);
+  if (type === 'stacked-bar') return multiBarChart(rows, xField, yField, seriesField, aggregation, ordering, true);
   if (type === 'line') return signedLineChart(rows, xField, yField, aggregation, ordering);
   if (type === 'area') return areaChart(rows, xField, yField, aggregation, ordering);
   if (type === 'donut') return donutChart(rows, xField, yField, aggregation, ordering);
@@ -341,6 +419,7 @@ export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'or
   if (type === 'waterfall') return waterfallChart(rows, xField, yField, aggregation, ordering);
   if (type === 'radar') return radarChart(rows, xField, yField, aggregation, ordering);
   if (type === 'treemap') return treemapChart(rows, xField, yField, aggregation, ordering);
+  if (type === 'pareto') return paretoChart(rows, xField, yField, aggregation, ordering);
   return signedBarChart(rows, xField, yField, aggregation, ordering);
 }
 
