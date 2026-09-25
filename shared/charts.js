@@ -208,6 +208,35 @@ function comboChart(rows, xField, yField, secondaryField, aggregation, ordering)
   return chartFrame('<text class="chart-axis-title" x="62" y="20">Combinado · ' + esc(yField) + ' + ' + esc(secondaryField) + '</text>' + legend + zero + bars + line + dots, xField + ': barras y línea');
 }
 
+function forecastChart(rows, xField, yField, aggregation) {
+  const observed = groupRows(rows, xField, yField, aggregation, 'original').slice(0, 18);
+  if (observed.length < 3) return emptyChart('La proyección necesita al menos tres periodos con datos');
+  const values = observed.map(item => item.value);
+  const n = values.length;
+  const meanX = (n - 1) / 2;
+  const meanY = values.reduce((sum, value) => sum + value, 0) / n;
+  const varianceX = values.reduce((sum, _value, index) => sum + (index - meanX) ** 2, 0);
+  const slope = varianceX ? values.reduce((sum, value, index) => sum + (index - meanX) * (value - meanY), 0) / varianceX : 0;
+  const intercept = meanY - slope * meanX;
+  const horizon = 3;
+  const lastLabel = String(observed.at(-1).label);
+  const projected = Array.from({ length: horizon }, (_, index) => ({ label: /^\d{4}$/.test(lastLabel) ? String(Number(lastLabel) + index + 1) : `+${index + 1}`, value: intercept + slope * (n + index) }));
+  const all = [...values, ...projected.map(item => item.value)];
+  const scale = chartScale(all);
+  const slot = 700 / (n + horizon);
+  const observedPoints = values.map((value, index) => [74 + index * slot + slot / 2, scale.y(value)]);
+  const projectedPoints = projected.map((item, index) => [74 + (n + index) * slot + slot / 2, scale.y(item.value), item]);
+  const observedLine = '<polyline points="' + observedPoints.map(point => point[0].toFixed(1) + ',' + point[1].toFixed(1)).join(' ') + '" fill="none" stroke="#67e8f9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>';
+  const trendPoints = Array.from({ length: n + horizon }, (_, index) => [74 + index * slot + slot / 2, scale.y(intercept + slope * index)]);
+  const trendLine = '<polyline points="' + trendPoints.map(point => point[0].toFixed(1) + ',' + point[1].toFixed(1)).join(' ') + '" fill="none" stroke="#fbbf24" stroke-width="3" stroke-dasharray="8 6" stroke-linecap="round"/>';
+  const dots = observedPoints.map((point, index) => '<circle cx="' + point[0].toFixed(1) + '" cy="' + point[1].toFixed(1) + '" r="5" fill="#67e8f9"><title>' + esc(observed[index].label) + ' · ' + esc(yField) + ': ' + format(values[index], 1) + '</title></circle>').join('');
+  const futureDots = projectedPoints.map(point => '<circle cx="' + point[0].toFixed(1) + '" cy="' + point[1].toFixed(1) + '" r="6" fill="#10233f" stroke="#fbbf24" stroke-width="3"><title>' + esc(point[2].label) + ' · estimación lineal: ' + format(point[2].value, 1) + '</title></circle>').join('');
+  const labels = [...observed.map(item => item.label), ...projected.map(item => item.label)].map((label, index) => '<text class="chart-axis-label" x="' + (74 + index * slot + slot / 2).toFixed(1) + '" y="296" text-anchor="middle">' + axisLabel(label) + '</text>').join('');
+  const divider = '<line x1="' + (74 + n * slot).toFixed(1) + '" y1="34" x2="' + (74 + n * slot).toFixed(1) + '" y2="274" stroke="#fbbf24" stroke-dasharray="3 5" opacity=".65"/><text class="chart-axis-label" x="' + (74 + n * slot + 6).toFixed(1) + '" y="48">proyección</text>';
+  const legend = '<g transform="translate(470 20)"><rect width="10" height="10" rx="3" fill="#67e8f9"/><text x="16" y="9">observado</text><rect x="92" width="10" height="10" rx="3" fill="#fbbf24"/><text x="108" y="9">tendencia / estimación</text></g>';
+  return chartFrame('<text class="chart-axis-title" x="62" y="20">Proyección lineal descriptiva · no es predicción</text>' + legend + divider + observedLine + trendLine + dots + futureDots + labels, xField + ': tendencia y proyección de ' + yField);
+}
+
 function correlationChart(rows) {
   const columns = state.columns.filter(column => column.type === 'number' && !/^(id|_row_id|year|año|latitude|longitude|lat|lon|lng)$/i.test(column.name)).slice(0, 8);
   if (columns.length < 2) return emptyChart('La matriz de correlación necesita dos campos numéricos');
@@ -488,6 +517,7 @@ export function chartSVG(type, rows, xField, yField, aggregation, ordering = 'or
   if (type === 'area') return areaChart(rows, xField, yField, aggregation, ordering);
   if (type === 'stacked-area') return stackedAreaChart(rows, xField, yField, seriesField, aggregation, ordering);
   if (type === 'combo') return comboChart(rows, xField, yField, secondaryField, aggregation, ordering);
+  if (type === 'forecast') return forecastChart(rows, xField, yField, aggregation);
   if (type === 'donut') return donutChart(rows, xField, yField, aggregation, ordering);
   if (type === 'scatter') return scatterChart(rows, xField, yField);
   if (type === 'histogram') return histogramChart(rows, yField);

@@ -6,8 +6,8 @@ const transformationHistory = [];
 const mode = root.dataset.mode || 'dashboard';
 const initialTab = mode === 'profiler' ? 'quality' : mode === 'transform' ? 'analyze' : 'overview';
 const TAB_IDS = ['overview', 'prepare', 'analyze', 'quality'];
-const CHART_TYPES = ['bar', 'grouped-bar', 'stacked-bar', 'line', 'area', 'stacked-area', 'combo', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'funnel', 'waterfall', 'radar', 'treemap', 'pareto'];
-const CHART_LABELS = { bar: 'Barras', 'grouped-bar': 'Barras agrupadas', 'stacked-bar': 'Barras apiladas', line: 'Línea', area: 'Área', 'stacked-area': 'Área apilada', combo: 'Combinado', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', heatmap: 'Mapa de calor bivariado', correlation: 'Matriz de correlación', funnel: 'Embudo', waterfall: 'Cascada', radar: 'Radar', treemap: 'Treemap', pareto: 'Pareto' };
+const CHART_TYPES = ['bar', 'grouped-bar', 'stacked-bar', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'donut', 'scatter', 'histogram', 'boxplot', 'map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'funnel', 'waterfall', 'radar', 'treemap', 'pareto'];
+const CHART_LABELS = { bar: 'Barras', 'grouped-bar': 'Barras agrupadas', 'stacked-bar': 'Barras apiladas', line: 'Línea', area: 'Área', 'stacked-area': 'Área apilada', combo: 'Combinado', forecast: 'Proyección', donut: 'Anillo', scatter: 'Dispersión', histogram: 'Histograma', boxplot: 'Caja y bigotes', map: 'Mapa de puntos', 'bubble-map': 'Mapa de burbujas', 'density-map': 'Densidad por cuadrícula', heatmap: 'Mapa de calor bivariado', correlation: 'Matriz de correlación', funnel: 'Embudo', waterfall: 'Cascada', radar: 'Radar', treemap: 'Treemap', pareto: 'Pareto' };
 const AGGREGATIONS = ['sum', 'avg', 'count'];
 const SORT_MODES = ['original', 'value-desc', 'value-asc'];
 const numericColumns = () => state.columns.filter(column => column.type === 'number');
@@ -41,7 +41,7 @@ function safeSpan(value, fallback, maximum = 12) {
 function layoutDefaults(card) {
   if (card.type === 'kpi') return { colSpan: 3, rowSpan: 1 };
   if (card.type === 'table') return { colSpan: 12, rowSpan: 2 };
-  if (['map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'scatter', 'line', 'area', 'stacked-area', 'combo', 'grouped-bar', 'stacked-bar', 'pareto'].includes(card.chartType)) return { colSpan: 6, rowSpan: 2 };
+  if (['map', 'bubble-map', 'density-map', 'heatmap', 'correlation', 'scatter', 'line', 'area', 'stacked-area', 'combo', 'forecast', 'grouped-bar', 'stacked-bar', 'pareto'].includes(card.chartType)) return { colSpan: 6, rowSpan: 2 };
   return { colSpan: 4, rowSpan: 2 };
 }
 
@@ -117,6 +117,7 @@ function defaultDashboard() {
   const series = bestSeriesField(dimension);
   if (dimension) cards.push({ id: 'chart-main', type: 'chart', title: 'Distribución principal', chartType: series ? 'grouped-bar' : 'bar', xField: dimension, yField: numeric || dimension, seriesField: series, aggregation });
   if (temporal && numeric) cards.push({ id: 'chart-trend', type: 'chart', title: 'Evolución temporal', chartType: series ? 'stacked-area' : 'line', xField: temporal.name, yField: numeric, seriesField: series, aggregation: 'sum', chartSort: 'original' });
+  if (temporal && numeric && new Set(state.rows.map(row => String(row[temporal.name] ?? ''))).size >= 3) cards.push({ id: 'chart-forecast', type: 'chart', title: 'Tendencia y proyección', chartType: 'forecast', xField: temporal.name, yField: numeric, aggregation: 'sum', chartSort: 'original' });
   if (temporal && analysisNumbers.length >= 2) cards.push({ id: 'chart-combo', type: 'chart', title: 'Comparación de métricas', chartType: 'combo', xField: temporal.name, yField: analysisNumbers[0].name, secondaryField: analysisNumbers[1].name, aggregation: 'sum', chartSort: 'original' });
   if (analysisNumbers.length >= 2) cards.push({ id: 'chart-relation', type: 'chart', title: 'Relación entre métricas', chartType: 'scatter', xField: analysisNumbers[0].name, yField: analysisNumbers[1].name, aggregation: 'sum' });
   if (analysisNumbers.length >= 3) cards.push({ id: 'chart-correlation', type: 'chart', title: 'Correlaciones entre métricas', chartType: 'correlation', xField: analysisNumbers[0].name, yField: analysisNumbers[1].name, aggregation: 'count' });
@@ -368,7 +369,7 @@ async function askLocalModel(request = '', mode = 'analysis') {
   }
   const profile = compactDataProfile();
   const prompt = mode === 'plan'
-    ? `Actúa como un planificador de operaciones de datos. Devuelve SOLO un objeto JSON válido, sin markdown ni explicación. Elige una sola acción: chart o treatment. Para chart usa exactamente este esquema: {"action":"chart","chartType":"bar|grouped-bar|stacked-bar|line|area|stacked-area|combo|donut|scatter|histogram|boxplot|map|bubble-map|density-map|heatmap|correlation|funnel|waterfall|radar|treemap|pareto","xField":"nombre exacto","yField":"nombre exacto","secondaryField":"segunda métrica numérica o cadena vacía","seriesField":"campo de serie o cadena vacía","aggregation":"sum|avg|count","chartSort":"original|value-desc|value-asc","title":"título breve"}. Para treatment usa: {"action":"treatment","command":"orden breve en español"}. Solo puedes usar nombres de campos que aparezcan en el perfil. No inventes campos, coordenadas ni valores. La orden treatment debe ser una de estas operaciones: eliminar duplicados, eliminar filas vacías, rellenar faltantes, limpiar espacios, normalizar un campo numérico, detectar atípicos o segmentar un campo numérico. Petición: ${request || 'elige un análisis útil'}. Perfil: ${JSON.stringify(profile)}`
+    ? `Actúa como un planificador de operaciones de datos. Devuelve SOLO un objeto JSON válido, sin markdown ni explicación. Elige una sola acción: chart o treatment. Para chart usa exactamente este esquema: {"action":"chart","chartType":"bar|grouped-bar|stacked-bar|line|area|stacked-area|combo|forecast|donut|scatter|histogram|boxplot|map|bubble-map|density-map|heatmap|correlation|funnel|waterfall|radar|treemap|pareto","xField":"nombre exacto","yField":"nombre exacto","secondaryField":"segunda métrica numérica o cadena vacía","seriesField":"campo de serie o cadena vacía","aggregation":"sum|avg|count","chartSort":"original|value-desc|value-asc","title":"título breve"}. Para treatment usa: {"action":"treatment","command":"orden breve en español"}. Solo puedes usar nombres de campos que aparezcan en el perfil. No inventes campos, coordenadas ni valores. La orden treatment debe ser una de estas operaciones: eliminar duplicados, eliminar filas vacías, rellenar faltantes, limpiar espacios, normalizar un campo numérico, detectar atípicos o segmentar un campo numérico. Petición: ${request || 'elige un análisis útil'}. Perfil: ${JSON.stringify(profile)}`
     : `Actúa como analista de datos. Responde en español, con prudencia y sin inventar. Analiza este perfil local y propone hasta cinco acciones concretas de limpieza, métricas o visualizaciones. Si el usuario ha pedido una operación, explica cómo ejecutarla con los campos disponibles y no inventes columnas. Si hay coordenadas, recomienda un mapa apropiado. No afirmes causalidad. Petición del usuario: ${request || 'sin petición adicional'}. Perfil: ${JSON.stringify(profile)}`;
   const answer = await state.aiSession.prompt(prompt);
   setAIStatus('Gemini Nano listo', 'ready');
@@ -437,6 +438,7 @@ function buildAssistantPlan(command) {
   if (/barras?\s+apilad|stacked/.test(normalized)) chartType = 'stacked-bar';
   else if (/area\s+apilad|área\s+apilad|stacked\s+area|composici[oó]n\s+temporal/.test(normalized)) chartType = 'stacked-area';
   else if (/combinad|mixto|barras?\s+y\s+l[ií]nea|combo/.test(normalized) && numeric.length >= 2) { chartType = 'combo'; xField = temporal?.name || dimension; yField = numeric[0].name; }
+  else if (/proyecci[oó]n|previsi[oó]n|pron[oó]stico|forecast|tendencia futura/.test(normalized) && numeric.length) { chartType = 'forecast'; xField = temporal?.name || dimension; yField = metric; }
   else if (/matriz.*correl|correlaci[oó]n.*matriz/.test(normalized) && numeric.length >= 2) { chartType = 'correlation'; xField = numeric[0].name; yField = numeric[1].name; aggregation = 'count'; }
   else if (/barras?\s+agrupad|grouped|comparar\s+por/.test(normalized)) chartType = 'grouped-bar';
   else if (/pareto|80\/20/.test(normalized)) chartType = 'pareto';
